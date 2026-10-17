@@ -52,8 +52,117 @@ td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
 </header>
 <div id="pkbg" hidden><div id="pk"></div></div>
 <main id="view"></main><div id="toast"></div>
+<script id="webfs">
+// ===== 웹 버전 어댑터: 서버 없이 브라우저의 File System Access API로 같은 API를 흉내 낸다 (Chrome·Edge 데스크톱) =====
+const WEB=(()=>{
+const DEV=new Set([".git","node_modules","venv",".venv","env","__pycache__","site-packages",".idea",".tox","Pods"]);
+const PKG=new Set([".app",".photoslibrary",".fcpbundle",".xcodeproj",".framework",".bundle",".musiclibrary",".tvlibrary",".imovielibrary",".theater",".logicx",".band",".rcproject",".sparsebundle",".sparseimage",".rtfd",".pvm",".vmwarevm",".xcarchive",".playground",".colorsync",".lrdata",".lrcat-data",".aplibrary",".migratedaplibrary"]);
+const TRASH=".FileManager-Trash";
+const SKIP=new Set([".DS_Store",TRASH,"$RECYCLE.BIN","System Volume Information","lost+found"]);
+const KEEP=new Set(["Icon\r","__init__.py",".gitkeep",".keep","py.typed",".nojekyll","desktop.ini","Thumbs.db"]);
+const CATS={"이미지":".jpg .jpeg .png .gif .heic .webp .bmp .tiff .raw .cr2 .nef .svg","영상":".mp4 .mov .mkv .avi .wmv .webm .m4v","오디오":".mp3 .m4a .wav .flac .aac .ogg","문서":".pdf .doc .docx .hwp .hwpx .txt .md .rtf .pages .key .ppt .pptx .odt","표·데이터":".xls .xlsx .csv .numbers .json .xml .sqlite .db","압축":".zip .7z .rar .tar .gz .tgz .bz2 .xz","설치·디스크":".dmg .pkg .iso .exe .msi .apk","코드":".py .js .ts .html .css .sh .ipynb .java .c .cpp .go .rs"};
+const CAT=Object.entries(CATS).map(([k,v])=>[k,new Set(v.split(" "))]);
+let R=null; // {h,name}
+const ext=n=>{const i=n.lastIndexOf(".");return i>0?n.slice(i).toLowerCase():""};
+const nfc=s=>s.normalize("NFC");
+const E=m=>{const e=new Error(m);e.fm=1;return e};
+const need=()=>{if(!R)throw E("먼저 [폴더 선택]으로 작업할 폴더를 고르세요");return R};
+const full=rel=>"/"+R.name+(rel?"/"+rel:"");
+const toRel=p=>{need();p=p.replace(/\\/g,"/");const pre="/"+R.name;if(p===pre)return"";if(!p.startsWith(pre+"/"))throw E("선택한 폴더 밖입니다");return p.slice(pre.length+1)};
+// ---- SHA-256 (스트리밍) ----
+const K=new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+function Sha(){const H=new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]),W=new Uint32Array(64),buf=new Uint8Array(64);let bl=0,tl=0;
+ const rr=(x,n)=>(x>>>n)|(x<<(32-n));
+ function blk(b,o){for(let i=0;i<16;i++)W[i]=(b[o+4*i]<<24)|(b[o+4*i+1]<<16)|(b[o+4*i+2]<<8)|b[o+4*i+3];
+  for(let i=16;i<64;i++){const s0=rr(W[i-15],7)^rr(W[i-15],18)^(W[i-15]>>>3),s1=rr(W[i-2],17)^rr(W[i-2],19)^(W[i-2]>>>10);W[i]=(W[i-16]+s0+W[i-7]+s1)|0}
+  let a=H[0],b2=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+  for(let i=0;i<64;i++){const S1=rr(e,6)^rr(e,11)^rr(e,25),ch=(e&f)^(~e&g),t1=(h+S1+ch+K[i]+W[i])|0,S0=rr(a,2)^rr(a,13)^rr(a,22),mj=(a&b2)^(a&c)^(b2&c),t2=(S0+mj)|0;h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b2;b2=a;a=(t1+t2)|0}
+  H[0]=(H[0]+a)|0;H[1]=(H[1]+b2)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0}
+ return{update(u){tl+=u.length;let i=0;if(bl){while(bl<64&&i<u.length)buf[bl++]=u[i++];if(bl===64){blk(buf,0);bl=0}}
+   for(;i+64<=u.length;i+=64)blk(u,i);while(i<u.length)buf[bl++]=u[i++]},
+  hex(){const bits=tl*8,pad=new Uint8Array(((bl<56)?56-bl:120-bl)+8);pad[0]=0x80;const hi=Math.floor(bits/4294967296),lo=bits>>>0,n=pad.length;
+   pad[n-8]=hi>>>24;pad[n-7]=hi>>>16;pad[n-6]=hi>>>8;pad[n-5]=hi;pad[n-4]=lo>>>24;pad[n-3]=lo>>>16;pad[n-2]=lo>>>8;pad[n-1]=lo;
+   const keep=tl;this.update(pad);tl=keep;return[...H].map(x=>(x>>>0).toString(16).padStart(8,"0")).join("")}}}
+async function hashBlob(f,limit){const s=Sha();if(limit){s.update(new Uint8Array(await f.slice(0,limit).arrayBuffer()))}else{const r=f.stream().getReader();for(;;){const{done,value}=await r.read();if(done)break;s.update(value)}}return s.hex()}
+// ---- 디렉터리 순회 ----
+async function* walk(dirH,base,o){for await(const[name,h]of dirH.entries()){if(SKIP.has(name)||(!o.hidden&&name.startsWith(".")))continue;const p=base?base+"/"+name:name;
+ if(h.kind==="directory"){if(PKG.has(ext(name))||(o.skip&&o.skip.has(name)))continue;yield{p,name,h,dir:true,parent:dirH};yield*walk(h,p,o)}else yield{p,name,h,dir:false,parent:dirH}}}
+const ent=async e=>{const f=await e.h.getFile();return{...e,f,size:f.size,mtime:Math.floor(f.lastModified/1000)}};
+const fmt=e=>({path:full(e.p),size:e.size,mtime:e.mtime});
+async function dirAt(parts,create){let h=R.h;for(const n of parts){h=await h.getDirectoryHandle(n,{create:!!create})}return h}
+async function exists(rel){const parts=rel.split("/").filter(Boolean),name=parts.pop();try{const d=await dirAt(parts);try{await d.getFileHandle(name);return true}catch(e){try{await d.getDirectoryHandle(name);return true}catch(e2){return false}}}catch(e){return false}}
+async function unique(rel,taken){const i=rel.lastIndexOf("/"),dir=i<0?"":rel.slice(0,i+1),n=rel.slice(i+1),x=n.lastIndexOf("."),stem=x>0?n.slice(0,x):n,sx=x>0?n.slice(x):"";let c=rel,k=2;while((taken&&taken.has(c))||await exists(c))c=dir+`${stem} (${k++})${sx}`;return c}
+// ---- 스캔 ----
+async function scanDup(a){need();const min=Math.max(1,+a.min_size||1),refs=(a.refs||[]).filter(Boolean).map(toRel);const by=new Map();
+ for await(const e of walk(R.h,"",{hidden:a.hidden,skip:a.dev?null:DEV})){if(e.dir)continue;const x=await ent(e);if(x.size<min)continue;(by.get(x.size)||by.set(x.size,[]).get(x.size)).push(x)}
+ const groups=[];for(const[size,items]of by){if(items.length<2)continue;const part=new Map();for(const x of items){try{const k=await hashBlob(x.f,65536);(part.get(k)||part.set(k,[]).get(k)).push(x)}catch(e){}}
+  for(const cand of part.values()){if(cand.length<2)continue;const fl=new Map();for(const x of cand){try{const k=await hashBlob(x.f);(fl.get(k)||fl.set(k,[]).get(k)).push(x)}catch(e){}}
+   for(const[h,g]of fl){if(g.length>1){g.sort((a,b)=>a.p<b.p?-1:1);groups.push({hash:h.slice(0,12),size,files:g.map(x=>({...fmt(x),ref:refs.some(r=>x.p===r||x.p.startsWith(r+"/"))})),wasted:size*(g.length-1)})}}}}
+ groups.sort((a,b)=>b.wasted-a.wasted);return{groups:groups.slice(0,500),total_groups:groups.length,wasted:groups.reduce((s,g)=>s+g.wasted,0)}}
+async function scanBig(a){need();const out=[];for await(const e of walk(R.h,"",{hidden:a.hidden,skip:a.dev?null:DEV})){if(!e.dir)out.push(fmt(await ent(e)))}out.sort((a,b)=>b.size-a.size);return{files:out.slice(0,+a.limit||200)}}
+async function scanEmpty(a){need();const dev=!!a.dev;let zero=[];for await(const e of walk(R.h,"",{hidden:a.hidden})){if(!e.dir){const x=await ent(e);if(x.size===0)zero.push(x)}}
+ const empty=new Set(),projects=new Set();
+ async function chk(dh,p){let em=true;for await(const[n,h]of dh.entries()){if(SKIP.has(n))continue;if(h.kind==="file"){em=false;continue}
+   if(PKG.has(ext(n))){em=false;continue}if(!await chk(h,p?p+"/"+n:n))em=false}
+  if(em&&p)empty.add(p);return em}
+ // .git 존재 여부는 하위 순회 전에 알 수 있도록 먼저 한 번 훑는다
+ async function marks(dh,p){for await(const[n,h]of dh.entries()){if(h.kind!=="directory"||SKIP.has(n)||PKG.has(ext(n)))continue;const q=p?p+"/"+n:n;if(n===".git")projects.add(p);else await marks(h,q)}}
+ await marks(R.h,"");await chk(R.h,"");
+ const inDev=p=>p.split("/").some(x=>DEV.has(x))||[...projects].some(pr=>pr!==""&&(p===pr||p.startsWith(pr+"/")));
+ let dirs=[...empty].sort().filter(p=>{const i=p.lastIndexOf("/");return i<0||!empty.has(p.slice(0,i))});
+ let skipped=0;const objs=[];for(const p of dirs){let h=await dirAt(p.split("/"));objs.push({path:full(p),size:0,mtime:0,_p:p})}
+ let zs=zero.map(x=>({...fmt(x),_p:x.p}));
+ if(!dev){const n=objs.length+zs.length;const d2=objs.filter(o=>!inDev(o._p)),z2=zs.filter(o=>!inDev(o._p)&&!KEEP.has(o._p.split("/").pop()));skipped=n-d2.length-z2.length;return{zero:z2,dirs:d2,skipped}}
+ return{zero:zs,dirs:objs,skipped:0}}
+// ---- 계획 ----
+async function planOrg(a){need();const mode=a.mode||"type",plan=[],taken=new Set();const ents=[];for await(const[n,h]of R.h.entries())if(h.kind==="file")ents.push([n,h]);ents.sort((a,b)=>a[0]<b[0]?-1:1);
+ for(const[n,h]of ents){if(n.startsWith(".")||KEEP.has(n)||SKIP.has(n))continue;const f=await h.getFile(),x=ext(n),cat=(CAT.find(([k,s])=>s.has(x))||["기타"])[0],d=new Date(f.lastModified),month=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  const sub={type:cat,month,"type-month":cat+"/"+month}[mode];const dst=await unique(sub+"/"+n,taken);taken.add(dst);plan.push({src:full(n),dst:full(dst),size:f.size})}return{plan}}
+async function planRename(a){need();const tpl=a.template||"{name}",find=a.find||"",repl=a.repl||"",start=+a.start||1,pad=+a.pad||2;const names=[];for await(const[n,h]of R.h.entries())if(h.kind==="file"&&!n.startsWith("."))names.push([n,h]);names.sort((a,b)=>a[0]<b[0]?-1:1);
+ const exist=new Set(names.map(x=>nfc(x[0])));const list=a.ext?names.filter(([n])=>ext(n)===a.ext.toLowerCase()):names;const plan=[],targets=new Set();
+ for(let i=0;i<list.length;i++){const[n,h]=list[i],x=n.lastIndexOf("."),stem0=x>0?n.slice(0,x):n,sx=x>0?n.slice(x):"",stem=find?stem0.split(find).join(repl):stem0,d=new Date((await h.getFile()).lastModified);
+  let nw=tpl.split("{name}").join(stem).split("{ext}").join(sx.replace(".","")).split("{n}").join(String(start+i).padStart(pad,"0")).split("{date}").join(d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"));
+  if(!tpl.includes("{ext}"))nw+=sx;if(a.case==="lower")nw=nw.toLowerCase();else if(a.case==="upper")nw=nw.toUpperCase();if(a.nfc)nw=nfc(nw);nw=[...nw].map(c=>'/\\:*?"<>|'.includes(c)?"_":c).join("").trim();
+  const conflict=nw===""||nw.startsWith(".")||targets.has(nw)||(nw!==n&&exist.has(nfc(nw))&&nfc(nw)!==nfc(n));targets.add(nw);plan.push({src:full(n),dst:full(nw),old:n,new:nw,same:nw===n,conflict:!!conflict})}return{plan}}
+// ---- 이동 (move() 우선, 안 되면 복사 후 삭제) ----
+async function cloneDirs(src,dst){for await(const[n,c]of src.entries()){if(c.kind==="directory")await cloneDirs(c,await dst.getDirectoryHandle(n,{create:true}))}}
+async function moveRel(src,dst){const sp=src.split("/"),sn=sp.pop(),dp=dst.split("/"),dn=dp.pop(),sd=await dirAt(sp),dd=await dirAt(dp,true);let h,isDir=false;
+ try{h=await sd.getFileHandle(sn)}catch(e){h=await sd.getDirectoryHandle(sn);isDir=true}
+ if(typeof h.move==="function"){try{if(sd===dd||await sd.isSameEntry(dd))await h.move(dn);else await h.move(dd,dn);return}catch(e){}}
+ if(isDir){const nd=await dd.getDirectoryHandle(dn,{create:true});await cloneDirs(h,nd);await sd.removeEntry(sn,{recursive:true});return}
+ const f=await h.getFile(),w=await(await dd.getFileHandle(dn,{create:true})).createWritable();try{await f.stream().pipeTo(w)}catch(e){try{await dd.removeEntry(dn)}catch(x){}throw e}await sd.removeEntry(sn)}
+// ---- 기록 ----
+const JK="fm_web_journal";
+const jload=()=>{try{return JSON.parse(localStorage.getItem(JK)||"[]")}catch(e){return[]}};
+const jsave=j=>{try{localStorage.setItem(JK,JSON.stringify(j.slice(-100)))}catch(e){}};
+function log(label,ops,errs){let entry=null;if(ops.length){entry={id:Date.now(),label,at:new Date().toLocaleString("sv-SE").slice(0,19),root:R.name,ops,undone:false};const j=jload();j.push(entry);jsave(j)}return{done:ops.length,errors:errs,entry}}
+async function hasFiles(h){for await(const[n,c]of h.entries()){if(SKIP.has(n))continue;if(c.kind==="file")return true;if(await hasFiles(c))return true}return false}
+async function trash(a){need();const ops=[],errs=[];let freed=0;for(const raw of a.paths){try{const rel=toRel(raw);if(!rel)throw E("루트 폴더 자체는 대상이 될 수 없습니다");if(rel.split("/").includes(TRASH))throw E("휴지통 안입니다");
+  const parts=rel.split("/"),n=parts.pop(),pd=await dirAt(parts);let size=0,h;try{h=await pd.getFileHandle(n);size=(await h.getFile()).size}catch(e){h=await pd.getDirectoryHandle(n).catch(()=>{throw E("대상이 없습니다")});if(await hasFiles(h))throw E("파일이 들어 있는 폴더는 휴지통으로 보내지 않습니다")}
+  const dst=await unique(TRASH+"/"+n);await moveRel(rel,dst);ops.push({src:rel,dst});freed+=size}catch(e){errs.push({path:raw,error:e.message})}}
+ const r=log("휴지통",ops,errs);r.freed=freed;return r}
+async function move(a){need();const ops=[],errs=[];for(const m of a.moves){try{const s=toRel(m.src),d=toRel(m.dst);if(!await exists(s))throw E("원본이 없습니다");if(s===d)continue;if(await exists(d)&&nfc(s)!==nfc(d))throw E("대상 이름이 이미 있습니다");await moveRel(s,d);ops.push({src:s,dst:d})}catch(e){errs.push({path:m.src,error:e.message})}}return log(a.label||"이동",ops,errs)}
+async function undo(a){need();const j=jload(),en=[...j].reverse().find(e=>!e.undone&&(a.id==null||e.id===a.id));if(!en)throw E("되돌릴 기록이 없습니다");if(en.root!==R.name)throw E(`'${en.root}' 폴더를 다시 선택한 뒤 되돌리세요`);
+ let ok=0;const errs=[];for(const op of [...en.ops].reverse()){try{if(!await exists(op.dst))throw E("이미 옮겨졌거나 사라짐");if(await exists(op.src))throw E("원래 위치에 같은 이름이 있음");await moveRel(op.dst,op.src);ok++}catch(e){errs.push({path:op.dst,error:e.message})}}
+ if(ok){en.undone=true;jsave(j)}return{restored:ok,errors:errs}}
+async function dirSize(h){let s=0;for await(const[n,c]of h.entries()){s+=c.kind==="file"?(await c.getFile()).size:await dirSize(c)}return s}
+async function disk(){need();let t=0;try{t=await dirSize(await R.h.getDirectoryHandle(TRASH))}catch(e){}return{total:null,free:null,trash:t,mode:"web"}}
+async function trashEmpty(){need();let n=0,freed=0;try{const t=await R.h.getDirectoryHandle(TRASH);for await(const[nm,c]of t.entries()){freed+=c.kind==="file"?(await c.getFile()).size:await dirSize(c);await t.removeEntry(nm,{recursive:true});n++}}catch(e){}return{removed:n,freed}}
+const API={dup:scanDup,big:scanBig,empty:scanEmpty,org:planOrg,rename:planRename,trash,move,undo,disk,trash_empty:trashEmpty};
+return{
+ supported:()=>!!window.showDirectoryPicker,
+ setRoot(h,name){R={h,name:name||h.name}},
+ async pick(){const h=await window.showDirectoryPicker({mode:"readwrite"});R={h,name:h.name};return"/"+h.name},
+ rootPath:()=>R?"/"+R.name:"",
+ call:async(n,b)=>{const f=API[n];if(!f)throw new Error("지원하지 않는 기능: "+n);return f(b||{})},
+ journal:()=>({journal:jload().reverse()}),
+ _sha:hashBlob};
+})();
+</script>
 <script>
-const TOKEN="__TOKEN__",HOME="__HOME__",ROOTS=__ROOTS__;
+const TOKEN="__TOKEN__",HOME="__HOME__",_R='__ROOTS__';
+const WEBMODE=TOKEN==="__TOK"+"EN__";  // 서버가 값을 채우지 않았으면(GitHub Pages 등 정적 호스팅) 브라우저 전용 웹 모드
+const ROOTS=WEBMODE?[]:JSON.parse(_R);
 const baseOf=p=>ROOTS.find(r=>p===r.path||p.startsWith(r.path.replace(/\/$/,"")+"/"))||ROOTS[0];
 const norm=p=>p.trim().replace(/\\/g,"/");
 const $=(s,r=document)=>r.querySelector(s);
@@ -63,10 +172,11 @@ const fmtDate=t=>new Date(t*1000).toLocaleDateString("ko-KR");
 const rel=p=>{const r=$("#root").value.replace(/\/$/,"");return p.startsWith(r+"/")?p.slice(r.length+1):p};
 function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display="none",3500)}
 async function api(name,body){
+  if(WEBMODE)return WEB.call(name,body);
   const r=await fetch("/api/"+name,{method:"POST",headers:{"X-Token":TOKEN,"Content-Type":"application/json"},body:JSON.stringify(body||{})});
   const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
-const root=()=>{const v=norm($("#root").value);if(!v)throw new Error("폴더 경로를 입력하세요");return v};
-$("#root").value=localStorage.getItem("fm_root")||(ROOTS.length>1?ROOTS[1].path+"/Download":HOME+"/Downloads");
+const root=()=>{if(WEBMODE){const v=WEB.rootPath();if(!v)throw new Error("먼저 [폴더 선택]으로 작업할 폴더를 고르세요");return v}const v=norm($("#root").value);if(!v)throw new Error("폴더 경로를 입력하세요");return v};
+$("#root").value=WEBMODE?"":localStorage.getItem("fm_root")||(ROOTS.length>1?ROOTS[1].path+"/Download":HOME+"/Downloads");
 $("#root").onchange=()=>localStorage.setItem("fm_root",$("#root").value);
 
 // 폴더 선택기: Finder 컬럼 보기 (사이드바 · 뒤로/앞으로 · 열 · 경로 막대)
@@ -104,7 +214,7 @@ $("#pk").addEventListener("click",async e=>{
     try{const c=PK.cols[i],p=c.path+"/"+d;const dirs=await lsDirs(p);c.sel=d;PK.cols=PK.cols.slice(0,i+1);PK.cols.push({path:p,dirs,sel:null});
       PK.hist=PK.hist.slice(0,PK.hi+1);PK.hist.push(p);PK.hi=PK.hist.length-1;pkDraw(true)}catch(x){toast(x.message)}}});
 $("#pk").addEventListener("dblclick",e=>{if(e.target.closest("[data-d]"))$("#pks").click()});
-$("#browse").onclick=async()=>{try{
+$("#browse").onclick=async()=>{if(WEBMODE){try{$("#root").value=await WEB.pick();toast("선택한 폴더 안에서만 동작합니다");diskInfo()}catch(e){if(e.name!=="AbortError")toast(e.message)}return}try{
   if(!PK.side.length){const L={Desktop:"데스크탑",Documents:"문서",Downloads:"다운로드",Download:"다운로드",Pictures:"사진",DCIM:"카메라(DCIM)",Movies:"영화",Videos:"동영상",Music:"음악"};
     for(const r of ROOTS){const d=await lsDirs(r.path);for(const n of Object.keys(L))if(d.includes(n))PK.side.push([L[n],r.path+"/"+n])}}
   $("#pkbg").hidden=false;const v=norm($("#root").value);PK.hist=[];PK.hi=-1;await pkPush(ROOTS.some(r=>v===r.path||v.startsWith(r.path+"/"))?v:ROOTS[0].path)}catch(e){toast(e.message);closePk()}};
@@ -113,11 +223,12 @@ document.addEventListener("keydown",e=>{if($("#pkbg").hidden)return;if(e.key==="
 
 // 탭
 let TRASH_MODE="";
-async function diskInfo(){try{const d=await api("disk");TRASH_MODE=d.mode;const app=d.mode==="app";
+async function diskInfoWeb(){TRASH_MODE="web";try{const d=await api("disk");$("#disk").innerHTML=`🌐 웹 버전 · 휴지통 = 선택한 폴더 안 <b>.FileManager-Trash</b> (<b>${fmtSize(d.trash)}</b>) <button id="empty" style="font-size:12px;padding:1px 8px">휴지통 비우기</button>`;$("#empty").onclick=async()=>{if(!confirm("휴지통을 비웁니다. 비운 파일은 복구할 수 없습니다. 계속할까요?"))return;try{const r=await api("trash_empty");toast(`${fmtSize(r.freed)} 확보 (${r.removed}개 영구 삭제)`);diskInfo()}catch(e){fail(e)}}}catch(e){$("#disk").innerHTML="🌐 웹 버전 — <b>[폴더 선택]</b>으로 시작하세요. 선택한 폴더 안에서만 동작합니다. <span class=\"mu\">(브라우저가 다운로드·문서·바탕화면 폴더 자체는 막을 수 있어, 그 안의 하위 폴더를 고르세요)</span>"}}
+async function diskInfo(){if(WEBMODE)return diskInfoWeb();try{const d=await api("disk");TRASH_MODE=d.mode;const app=d.mode==="app";
   $("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(app?` · 앱 휴지통 <b>${fmtSize(d.trash)}</b> <button id="empty" style="font-size:12px;padding:1px 8px">휴지통 비우기</button>`:` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`);
   if(app)$("#empty").onclick=async()=>{if(!confirm("앱 휴지통을 비웁니다. 비운 파일은 복구할 수 없습니다. 계속할까요?"))return;try{const r=await api("trash_empty");toast(`${fmtSize(r.freed)} 확보 (${r.removed}개 영구 삭제)`);diskInfo()}catch(e){fail(e)}}}catch(e){}}
 diskInfo();
-setInterval(()=>fetch("/api/ping").catch(()=>{}),5000);fetch("/api/ping").catch(()=>{});
+if(!WEBMODE){setInterval(()=>fetch("/api/ping").catch(()=>{}),5000);fetch("/api/ping").catch(()=>{})}
 $("#quit").onclick=async()=>{if(!confirm("파일 관리 앱을 종료합니다. (작업 기록은 보관됩니다)"))return;try{await api("quit")}catch(e){}document.body.innerHTML='<p style="padding:30px">종료되었습니다. 이 탭을 닫아도 됩니다.</p>'};
 const TABS=[["dup","중복 파일"],["big","큰 파일"],["empty","빈 항목"],["org","자동 정리"],["rename","이름 바꾸기"],["log","기록·되돌리기"]];
 $("#tabs").innerHTML=TABS.map(([k,l])=>`<button data-t="${k}">${l}</button>`).join("");
@@ -189,8 +300,10 @@ V.rename=()=>{view(`<div class="card"><div class="row"><label>형식 <input id="
  $("#go").onclick=async()=>{try{const r=await api("rename",{path:root(),template:$("#tpl").value,find:$("#find").value,repl:$("#repl").value,start:+$("#st").value,pad:+$("#pad").value,case:$("#case").value,ext:$("#ext").value.trim(),nfc:$("#nfc").checked});
   if(!r.plan.length){$("#res").innerHTML=`<div class="card">대상 파일이 없습니다.</div>`;return}planCard(r.plan,"이름 바꾸기")}catch(e){fail(e)}}};
 // 기록
-V.log=async()=>{try{const j=await (await fetch("/api/journal")).json();
+V.log=async()=>{try{const j=WEBMODE?WEB.journal():await (await fetch("/api/journal")).json();
  view(`<div class="card">`+(j.journal.length?`<table><tr><th>시각</th><th>작업</th><th>개수</th><th></th></tr>`+j.journal.map(e=>`<tr><td>${e.at}</td><td>${esc(e.label)}</td><td>${e.ops.length}</td><td class="n">${e.undone?'<span class="mu">되돌림</span>':`<button data-u="${e.id}">되돌리기</button>`}</td></tr>`).join("")+`</table><div class="mu" style="margin-top:8px">휴지통으로 보낸 항목은 휴지통에서 원래 위치로 복원됩니다(OS 휴지통의 '되돌려놓기'와는 별개). 휴지통을 이미 비웠다면 복원할 수 없습니다.</div>`:"기록이 없습니다.")+`</div>`);
  $("#view").onclick=async e=>{const id=e.target.dataset.u;if(!id)return;try{const r=await api("undo",{id:+id});diskInfo();toast(`복원 ${r.restored}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));V.log()}catch(x){fail(x)}}}catch(e){fail(e)}};
+if(WEBMODE){$("#quit").hidden=true;$("#root").readOnly=true;$("#root").placeholder="← [폴더 선택]을 눌러 작업할 폴더를 고르세요";$("#browse").textContent="폴더 선택";$("#browse").classList.add("pri");
+  if(!WEB.supported())document.querySelector("main").insertAdjacentHTML("beforebegin",`<div class="card" style="margin:14px 16px;border-color:var(--rd)"><b class="bad">이 브라우저는 폴더 접근을 지원하지 않습니다.</b><br>PC의 <b>Chrome 또는 Edge</b>로 이 주소를 다시 열어 주세요. (Firefox·Safari 미지원, 스마트폰은 제한적)</div>`)}
 go(localStorage.getItem("fm_tab")||"dup");
 </script></body></html>

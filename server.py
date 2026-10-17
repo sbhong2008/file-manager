@@ -505,8 +505,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(403, {"error": "host"})
         try:
             if u.path == "/":
-                html = load_ui().replace("__TOKEN__", TOKEN).replace("__HOME__", P(HOME)).replace(
-                    "__ROOTS__", json.dumps([{"name": "홈" if r == HOME else r.name or P(r), "path": P(r)} for r in ROOTS], ensure_ascii=False))
+                html = load_ui().replace("__TOKEN__", TOKEN).replace("__HOME__", P(HOME).replace("\\", "\\\\").replace('"', '\\"')).replace(
+                    "__ROOTS__", json.dumps([{"name": "홈" if r == HOME else r.name or P(r), "path": P(r)} for r in ROOTS], ensure_ascii=False).replace("\\", "\\\\").replace("'", "\\'"))
                 return self.send(200, html.encode(), "text/html; charset=utf-8")
             if u.path == "/api/ls":
                 return self.send(200, do_ls(parse_qs(u.query)))

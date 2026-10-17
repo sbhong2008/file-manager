@@ -2,6 +2,10 @@
 
 파이썬 표준 라이브러리 서버(`server.py`, 127.0.0.1:8056) + 단일 HTML UI(`index.html`). 빌드·의존성 없음, 미게시. macOS·Windows·Linux·Android(Termux) 공용(OS 어댑터: 휴지통 3방식·허용 루트·보호 폴더·경로 `/` 통일). 사용자는 한국어로 대화한다 → 답변도 한국어.
 
+## 웹 버전 (설치 없음)
+`index.html` 안에 `<script id="webfs">` 어댑터가 있어, 서버가 토큰을 채우지 않은 정적 호스팅(GitHub Pages)에서는 `WEBMODE`로 File System Access API를 써 같은 화면·같은 API를 브라우저만으로 처리한다. 서버가 `__TOKEN__`을 전부 치환하므로 판별식은 `"__TOK"+"EN__"`로 쪼개 둘 것. 휴지통=선택 폴더 안 `.FileManager-Trash`. 주소 https://sbhong2008.github.io/file-manager/ (Pages, main 브랜치 `/`).
+웹 어댑터 수정 시: 서버 API와 응답 형태를 동일하게 유지하고, OPFS(`navigator.storage.getDirectory()`)를 루트로 `WEB.setRoot()`해 헤드리스 Chrome에서 시험할 수 있다(실제 폴더 선택 창은 자동화 불가).
+
 ## 파일
 - `server.py` — 스캔(중복·큰 파일·빈 항목), 계획(자동 정리·이름 변경), 실행(휴지통·이동), 되돌리기. 홈 폴더 안만 허용.
 - `index.html` — 탭 6개(중복/큰 파일/빈 항목/자동 정리/이름 바꾸기/기록). `__TOKEN__`·`__HOME__`은 서버가 치환하므로 파일을 직접 열면 동작하지 않는다.
@@ -18,6 +22,7 @@
 - 계획(미리보기) 단계에서는 디스크를 바꾸지 않는다.
 
 ## 검증 상태
+- 웹 버전: 헤드리스 Chrome에서 OPFS 루트로 21개 시험 통과(SHA-256 직접구현 대조, 중복·빈 항목·정리·이름·휴지통·되돌리기, `move()`와 복사+삭제 대체 경로 둘 다). **실제 `showDirectoryPicker` 폴더 선택 창, 사용자 폴더에서의 `move()` 지원, Windows·Android 브라우저는 미확인.**
 - **Windows·Linux·Android는 실제로 실행해 보지 못했다.** macOS에서 휴지통 3방식(mac·xdg·app)과 추가 루트를 `FM_TRASH_MODE`·`FM_ROOTS`로 흉내 내 코드 경로만 검증. Windows 경로(`\\`→`/`)·숨김 속성, Termux 저장소 접근은 미검증. 테스트 시 `FM_JOURNAL`로 기록 파일을 분리할 것(안 하면 실제 기록에 섞임).
 - 서버 API는 홈 안 임시 폴더 픽스처로 확인(중복·기준 폴더·하드링크·빈 폴더·정리·이름 충돌·이동/되돌리기·휴지통/복원·홈 밖/Library 거부·토큰/Host 거부).
 - UI는 헤드리스 Chrome에서 로드·탭 렌더까지만 확인. **클릭 흐름(선택·적용·되돌리기 버튼)은 브라우저에서 직접 확인하지 않았다.**
