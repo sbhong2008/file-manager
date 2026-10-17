@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """로컬 파일 관리 서버 — 표준 라이브러리만 사용. 127.0.0.1 전용, 홈 폴더 안에서만 동작."""
-import hashlib, json, os, secrets, shutil, sys, time, unicodedata
+import hashlib, json, os, secrets, shutil, sys, threading, time, unicodedata, urllib.request, webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,7 +10,12 @@ PORT = int(os.environ.get("FM_PORT", 8056))
 HOME = Path.home().resolve()
 TRASH = HOME / ".Trash"
 APP = Path(__file__).resolve().parent
-JOURNAL = APP / "data" / "journal.json"
+FROZEN = getattr(sys, "frozen", False)  # PyInstaller 앱으로 실행 중
+RES = Path(getattr(sys, "_MEIPASS", APP))  # index.html 위치
+# 앱으로 배포할 때는 사용자별 폴더에 기록 (앱 번들 안은 쓸 수 없음)
+JOURNAL = (HOME / "Library/Application Support/파일관리" if FROZEN else APP / "data") / "journal.json"
+LAST_PING = [None]
+IDLE_QUIT = 180  # 초: 브라우저 탭이 닫히면 자동 종료 (백그라운드 탭 타이머 지연을 감안해 넉넉히)
 TOKEN = secrets.token_urlsafe(24)
 DENY = [HOME / n for n in ("Library", ".ssh", ".gnupg", "Applications", ".Trash")]
 PACKAGE_EXT = {".app", ".photoslibrary", ".fcpbundle", ".xcodeproj", ".framework", ".bundle", ".musiclibrary", ".tvlibrary",
@@ -373,10 +378,13 @@ class H(BaseHTTPRequestHandler):
             return self.send(403, {"error": "host"})
         try:
             if u.path == "/":
-                html = (APP / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN).replace("__HOME__", str(HOME))
+                html = (RES / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN).replace("__HOME__", str(HOME))
                 return self.send(200, html.encode(), "text/html; charset=utf-8")
             if u.path == "/api/ls":
                 return self.send(200, do_ls(parse_qs(u.query)))
+            if u.path == "/api/ping":
+                LAST_PING[0] = time.time()
+                return self.send(200, {"app": "fm"})
             if u.path == "/api/journal":
                 return self.send(200, {"journal": jload()[::-1]})
             self.send(404, {"error": "not found"})
@@ -386,6 +394,10 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.host_ok() or self.headers.get("X-Token") != TOKEN:
             return self.send(403, {"error": "token"})
+        if self.path == "/api/quit":
+            self.send(200, {"ok": True})
+            threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0))).start()
+            return
         fn = ROUTES.get(self.path.removeprefix("/api/"))
         if not fn:
             return self.send(404, {"error": "not found"})
@@ -396,9 +408,37 @@ class H(BaseHTTPRequestHandler):
             self.send(400, {"error": f"{type(e).__name__}: {e}" if not isinstance(e, Err) else str(e)})
 
 
+def already_running():
+    try:
+        r = urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/ping", timeout=1)
+        return json.load(r).get("app") == "fm"
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
-    print(f"파일 관리: http://127.0.0.1:{PORT}/  (종료: Ctrl+C)")
+    auto = FROZEN or os.environ.get("FM_OPEN") == "1"
+    if auto and already_running():  # 앱을 또 실행하면 새 서버를 만들지 않고 기존 화면만 연다
+        webbrowser.open(f"http://127.0.0.1:{PORT}/")
+        sys.exit(0)
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+    except OSError:  # 포트 사용 중이면 빈 포트 자동 선택
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        PORT = srv.server_address[1]
+    url = f"http://127.0.0.1:{PORT}/"
+    print(f"파일 관리: {url}  (종료: Ctrl+C)")
+    if auto:
+        threading.Timer(0.8, webbrowser.open, [url]).start()
+    if FROZEN:  # 브라우저 탭이 닫히면(핑이 끊기면) 종료
+        def watch():
+            started = time.time()
+            while True:
+                time.sleep(5)
+                last = LAST_PING[0] or started
+                if time.time() - last > (IDLE_QUIT if LAST_PING[0] else 300):
+                    os._exit(0)
+        threading.Thread(target=watch, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

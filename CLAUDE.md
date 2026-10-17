@@ -6,6 +6,7 @@
 - `server.py` — 스캔(중복·큰 파일·빈 항목), 계획(자동 정리·이름 변경), 실행(휴지통·이동), 되돌리기. 홈 폴더 안만 허용.
 - `index.html` — 탭 6개(중복/큰 파일/빈 항목/자동 정리/이름 바꾸기/기록). `__TOKEN__`·`__HOME__`은 서버가 치환하므로 파일을 직접 열면 동작하지 않는다.
 - `BENCHMARK.md` — REA 벤치마크와 모델 선택 근거(A~D 비교).
+- `build_app.sh` — 지인 배포용 macOS 앱 빌드(PyInstaller, 결과 `dist/FileManager.zip`+`dist/읽어주세요.txt`, git 제외). **Apple Silicon 전용**, 임시(ad-hoc) 서명이라 받는 쪽은 우클릭→열기 필요. 앱 이름이 한글이면 서명 검증이 실패해 `FileManager`(영문)로 둔다. 앱 실행 시 기록은 `~/Library/Application Support/파일관리/`, 브라우저 탭이 닫히면(핑 180초 끊김) 자동 종료, 화면의 [종료] 버튼도 있음.
 - `run.command` — 서버 실행 + 브라우저 열기. `data/journal.json` — 작업 기록(개인 경로 포함, git 제외).
 
 ## 규칙 (바꾸지 말 것)

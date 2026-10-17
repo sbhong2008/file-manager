@@ -45,7 +45,7 @@ td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
 #toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none;z-index:20;max-width:90%}
 </style></head><body>
 <header>
- <h1>🗂️ 로컬 파일 관리 <span class="mu">— 삭제는 항상 휴지통, 모든 작업은 되돌리기 가능</span></h1>
+ <h1>🗂️ 로컬 파일 관리 <span class="mu">— 삭제는 항상 휴지통, 모든 작업은 되돌리기 가능</span> <button id="quit" style="float:right;font-size:12px">종료</button></h1>
  <div class="path"><input id="root" placeholder="폴더 경로 (홈 폴더 안)" spellcheck="false"><button id="browse">찾아보기</button></div>
  <div id="disk" class="mu" style="margin-top:6px"></div>
  <nav id="tabs"></nav>
@@ -110,6 +110,8 @@ document.addEventListener("keydown",e=>{if($("#pkbg").hidden)return;if(e.key==="
 // 탭
 async function diskInfo(){try{const d=await api("disk");$("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(d.trash===null?"":` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`)}catch(e){}}
 diskInfo();
+setInterval(()=>fetch("/api/ping").catch(()=>{}),5000);fetch("/api/ping").catch(()=>{});
+$("#quit").onclick=async()=>{if(!confirm("파일 관리 앱을 종료합니다. (작업 기록은 보관됩니다)"))return;try{await api("quit")}catch(e){}document.body.innerHTML='<p style="padding:30px">종료되었습니다. 이 탭을 닫아도 됩니다.</p>'};
 const TABS=[["dup","중복 파일"],["big","큰 파일"],["empty","빈 항목"],["org","자동 정리"],["rename","이름 바꾸기"],["log","기록·되돌리기"]];
 $("#tabs").innerHTML=TABS.map(([k,l])=>`<button data-t="${k}">${l}</button>`).join("");
 $("#tabs").onclick=e=>{const k=e.target.dataset.t;if(k)go(k)};
