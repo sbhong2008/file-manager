@@ -13,7 +13,9 @@ APP = Path(__file__).resolve().parent
 JOURNAL = APP / "data" / "journal.json"
 TOKEN = secrets.token_urlsafe(24)
 DENY = [HOME / n for n in ("Library", ".ssh", ".gnupg", "Applications", ".Trash")]
-PACKAGE_EXT = {".app", ".photoslibrary", ".fcpbundle", ".xcodeproj", ".framework", ".bundle", ".musiclibrary", ".tvlibrary"}
+PACKAGE_EXT = {".app", ".photoslibrary", ".fcpbundle", ".xcodeproj", ".framework", ".bundle", ".musiclibrary", ".tvlibrary",
+               ".imovielibrary", ".theater", ".logicx", ".band", ".rcproject", ".sparsebundle", ".sparseimage", ".rtfd",
+               ".pvm", ".vmwarevm", ".xcarchive", ".playground", ".colorsync", ".lrdata", ".lrcat-data", ".aplibrary", ".migratedaplibrary"}
 CATS = {
     "이미지": {".jpg", ".jpeg", ".png", ".gif", ".heic", ".webp", ".bmp", ".tiff", ".raw", ".cr2", ".nef", ".svg"},
     "영상": {".mp4", ".mov", ".mkv", ".avi", ".wmv", ".webm", ".m4v"},
