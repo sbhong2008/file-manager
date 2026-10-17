@@ -42,3 +42,33 @@
 
 ## 안전 설계
 127.0.0.1 전용 · Host 검사(DNS 리바인딩 방지) · 실행마다 새 토큰 · 홈 폴더 밖과 Library/.ssh/Applications/휴지통 거부 · 심볼릭 링크·패키지(.app 등) 건너뜀 · 영구 삭제 없음(휴지통만) · 덮어쓰기 없음 · 모든 작업 `data/journal.json`에 기록.
+
+---
+
+## 추가 분석: 크로스 플랫폼(2026-10-18) — Windows·Linux·Android까지
+
+요구: "안드로이드·윈도우·리눅스 등 유니버설". 같은 방식(후보 비교 → 결정적 약점으로 선별)으로 정리한다.
+
+### 근거와 한계
+- Czkawka 증거(`ev_c9fef1…`)에서 관찰된 것: 모바일에서는 "video tools are not available due missing ffmpeg in Android" 문구, 즉 Android 지원 시 기능 축소가 있다. 이 문구 외에 Android 동작 방식은 관찰하지 못했다.
+- 웹 검색: `showDirectoryPicker()`는 데스크톱 Chrome/Edge 86+ 지원, Firefox·Safari 미지원(web.dev). **Android Chrome 지원은 검색에서 확인하지 못했다.** Termux는 `termux-setup-storage`로 `~/storage/...` 심볼릭 링크를 받으며, Android 11+에서는 접근이 제한될 수 있다(2021년 기기 시험 사례만 확인).
+- 이 Mac에서만 실행할 수 있어 Windows·Linux·Android 동작은 **시험하지 못했다**. macOS에서 휴지통 방식·추가 루트를 흉내 내어 코드 경로만 검증했다.
+
+### 후보
+| 후보 | 장점 | 결정적 약점 |
+|---|---|---|
+| A. 웹 전용 PWA(File System Access API) | 설치 없음, 한 코드로 전 OS | Firefox·Safari 불가, Android 지원 미확인, 휴지통 불가(영구 삭제), 큰 파일 해시를 스트리밍하기 어려움 |
+| **B. 파이썬 단일 파일 서버 + 같은 웹 UI (OS별 어댑터)** | 기존 검증된 코드 재사용, 표준 라이브러리만, 전 OS 실행 가능, Termux에서도 동작 | 파이썬 필요(앱 형태는 OS별로 빌드 필요) |
+| C. 네이티브 앱(Android Kotlin 등) | Android 정식 경험 | Android SDK·서명·스토어 필요, OS마다 별도 구현, 이 환경에서 빌드·시험 불가 |
+| D. Electron/Tauri | 3개 OS 데스크톱 앱 | Android 불가, 빌드 체인 무거움 |
+
+→ **B 채택**: 서버 코드를 OS 어댑터(휴지통 3방식·허용 루트·보호 폴더·경로 형식)로 일반화하고, 배포는 ① 단일 파일 `filemanager.py` ② OS별 PyInstaller 빌드(GitHub Actions 워크플로, 미실행) ③ Android는 Termux 절차로 한다. 네이티브 Android 앱(C)은 후속 후보.
+
+### OS별 어댑터 (구현·검증 상태)
+| 항목 | macOS | Linux | Windows | Android(Termux) |
+|---|---|---|---|---|
+| 휴지통 | `~/.Trash` (검증) | XDG 규격 files/+info/ (macOS에서 흉내 검증) | 앱 전용 `.FileManager-Trash` (macOS에서 흉내 검증) | 앱 전용(위와 동일 코드) |
+| 되돌리기 | 검증 | 검증(.trashinfo 정리 포함) | 검증(흉내) | 검증(흉내) |
+| 허용 루트 | 홈 | 홈 | 홈 | 홈 + `/storage/emulated/0` (추가 루트는 macOS에서 흉내 검증) |
+| 경로 형식 | `/` | `/` | `\`→`/` 변환 **(미검증)** | `/` |
+| 숨김 파일 | 점 파일 | 점 파일 | 점 + 숨김 속성 **(미검증)** | 점 파일 |

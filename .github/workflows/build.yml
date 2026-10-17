@@ -1,0 +1,27 @@
+# 수동 실행(workflow_dispatch). Windows·Linux·macOS용 실행 파일을 각 OS에서 빌드한다. (아직 실제로 실행해 본 적 없음)
+name: build
+on: workflow_dispatch
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - {os: windows-latest, sep: ";", flags: "--onefile --windowed", out: "dist/FileManager.exe"}
+          - {os: ubuntu-latest,  sep: ":", flags: "--onefile",            out: "dist/FileManager"}
+          - {os: macos-latest,   sep: ":", flags: "--windowed",           out: "dist/FileManager.app"}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - run: pip install pyinstaller
+      - run: pyinstaller --noconfirm ${{ matrix.flags }} --name FileManager --add-data "index.html${{ matrix.sep }}." server.py
+      - if: runner.os == 'macOS'
+        run: codesign --force --deep -s - dist/FileManager.app && ditto -c -k --keepParent dist/FileManager.app dist/FileManager-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FileManager-${{ matrix.os }}
+          path: |
+            dist/FileManager.exe
+            dist/FileManager
+            dist/FileManager-mac.zip

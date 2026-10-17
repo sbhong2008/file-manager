@@ -1,21 +1,24 @@
 # 로컬 파일 관리
 
-파이썬 표준 라이브러리 서버(`server.py`, 127.0.0.1:8056) + 단일 HTML UI(`index.html`). 빌드·의존성 없음, Mac 전용 로컬 앱(미게시). 사용자는 한국어로 대화한다 → 답변도 한국어.
+파이썬 표준 라이브러리 서버(`server.py`, 127.0.0.1:8056) + 단일 HTML UI(`index.html`). 빌드·의존성 없음, 미게시. macOS·Windows·Linux·Android(Termux) 공용(OS 어댑터: 휴지통 3방식·허용 루트·보호 폴더·경로 `/` 통일). 사용자는 한국어로 대화한다 → 답변도 한국어.
 
 ## 파일
 - `server.py` — 스캔(중복·큰 파일·빈 항목), 계획(자동 정리·이름 변경), 실행(휴지통·이동), 되돌리기. 홈 폴더 안만 허용.
 - `index.html` — 탭 6개(중복/큰 파일/빈 항목/자동 정리/이름 바꾸기/기록). `__TOKEN__`·`__HOME__`은 서버가 치환하므로 파일을 직접 열면 동작하지 않는다.
 - `BENCHMARK.md` — REA 벤치마크와 모델 선택 근거(A~D 비교).
 - `build_app.sh` — 지인 배포용 macOS 앱 빌드(PyInstaller, 결과 `dist/FileManager.zip`+`dist/읽어주세요.txt`, git 제외). **Apple Silicon 전용**, 임시(ad-hoc) 서명이라 받는 쪽은 우클릭→열기 필요. 앱 이름이 한글이면 서명 검증이 실패해 `FileManager`(영문)로 둔다. 앱 실행 시 기록은 `~/Library/Application Support/파일관리/`, 브라우저 탭이 닫히면(핑 180초 끊김) 자동 종료, 화면의 [종료] 버튼도 있음.
+- `build_single.py` — 모든 OS용 단일 파일 `dist/filemanager.py`(index.html을 base64 내장). `FileManager-cross-platform.zip` = 단일 파일+run.bat+run.sh+README. `사용법.md` = OS별 실행 안내, `.github/workflows/build.yml` = OS별 PyInstaller 빌드(수동 실행용, **한 번도 실행 안 함**).
+- `run.bat`·`run.sh` — Windows / Linux·Android 실행.
 - `run.command` — 서버 실행 + 브라우저 열기. `data/journal.json` — 작업 기록(개인 경로 포함, git 제외).
 
 ## 규칙 (바꾸지 말 것)
-- **영구 삭제 금지**: 삭제 = `~/.Trash`로 이동. 모든 변경은 `log()`로 기록하고 `do_undo`로 복원 가능해야 한다.
+- **영구 삭제 금지**: 삭제 = 휴지통으로 이동(mac `~/.Trash`, Linux XDG 휴지통, Windows·Android는 루트 안 `.FileManager-Trash`). 예외는 앱 전용 휴지통 비우기(`trash_empty`, 확인창 필수, 시스템 휴지통 환경에서는 거부). 모든 변경은 `log()`로 기록하고 `do_undo`로 복원 가능해야 한다.
 - 덮어쓰기 금지(대상 이름이 있으면 거부/번호 부여). 폴더는 파일이 없을 때만 휴지통으로(`.DS_Store` 무시).
 - 보호 경로(`DENY`)·홈 밖 거부, 심볼릭 링크·패키지 건너뜀, POST는 토큰 + Host 검사.
 - 계획(미리보기) 단계에서는 디스크를 바꾸지 않는다.
 
 ## 검증 상태
+- **Windows·Linux·Android는 실제로 실행해 보지 못했다.** macOS에서 휴지통 3방식(mac·xdg·app)과 추가 루트를 `FM_TRASH_MODE`·`FM_ROOTS`로 흉내 내 코드 경로만 검증. Windows 경로(`\\`→`/`)·숨김 속성, Termux 저장소 접근은 미검증. 테스트 시 `FM_JOURNAL`로 기록 파일을 분리할 것(안 하면 실제 기록에 섞임).
 - 서버 API는 홈 안 임시 폴더 픽스처로 확인(중복·기준 폴더·하드링크·빈 폴더·정리·이름 충돌·이동/되돌리기·휴지통/복원·홈 밖/Library 거부·토큰/Host 거부).
 - UI는 헤드리스 Chrome에서 로드·탭 렌더까지만 확인. **클릭 흐름(선택·적용·되돌리기 버튼)은 브라우저에서 직접 확인하지 않았다.**
 - 미구현: 비슷한 이미지/영상, 진행률 표시(스캔은 동기 처리), 휴지통 항목의 Finder '되돌려놓기' 메타데이터.

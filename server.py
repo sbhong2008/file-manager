@@ -1,23 +1,62 @@
 #!/usr/bin/env python3
-"""로컬 파일 관리 서버 — 표준 라이브러리만 사용. 127.0.0.1 전용, 홈 폴더 안에서만 동작."""
+"""로컬 파일 관리 서버 — 표준 라이브러리만 사용. 127.0.0.1 전용, 허용된 루트(홈 폴더 등) 안에서만 동작.
+macOS·Windows·Linux·Android(Termux) 공용. 실행: python3 server.py [--open] [--autoquit]"""
 import hashlib, json, os, secrets, shutil, sys, threading, time, unicodedata, urllib.request, webbrowser
+from urllib.parse import quote
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 PORT = int(os.environ.get("FM_PORT", 8056))
+IS_WIN = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+IS_ANDROID = "ANDROID_ROOT" in os.environ or "com.termux" in os.environ.get("PREFIX", "")
 HOME = Path.home().resolve()
-TRASH = HOME / ".Trash"
 APP = Path(__file__).resolve().parent
 FROZEN = getattr(sys, "frozen", False)  # PyInstaller 앱으로 실행 중
 RES = Path(getattr(sys, "_MEIPASS", APP))  # index.html 위치
-# 앱으로 배포할 때는 사용자별 폴더에 기록 (앱 번들 안은 쓸 수 없음)
-JOURNAL = (HOME / "Library/Application Support/파일관리" if FROZEN else APP / "data") / "journal.json"
+EMBEDDED_UI = None  # __EMBED__  (build_single.py가 index.html을 base64로 채워 넣음)
+
+
+def user_data_dir():
+    if IS_MAC:
+        return HOME / "Library/Application Support/파일관리"
+    if IS_WIN:
+        return Path(os.environ.get("APPDATA", HOME / "AppData/Roaming")) / "FileManager"
+    return Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "FileManager"
+
+
+# 소스 폴더(개발)에서는 data/, 앱·단일 파일 배포에서는 사용자 데이터 폴더에 작업 기록을 둔다
+JOURNAL = Path(os.environ["FM_JOURNAL"]) if os.environ.get("FM_JOURNAL") else (APP / "data" if (APP / "index.html").exists() and not FROZEN else user_data_dir()) / "journal.json"
 LAST_PING = [None]
 IDLE_QUIT = 180  # 초: 브라우저 탭이 닫히면 자동 종료 (백그라운드 탭 타이머 지연을 감안해 넉넉히)
 TOKEN = secrets.token_urlsafe(24)
-DENY = [HOME / n for n in ("Library", ".ssh", ".gnupg", "Applications", ".Trash")]
+
+# 다룰 수 있는 루트: 홈 + (Android 공유 저장소) + FM_ROOTS(경로 구분자로 여러 개)
+ROOTS = [HOME]
+if IS_ANDROID:
+    for _p in ("/storage/emulated/0", "/sdcard"):
+        if os.path.isdir(_p) and Path(_p).resolve() not in ROOTS:
+            ROOTS.append(Path(_p).resolve())
+for _p in filter(None, os.environ.get("FM_ROOTS", "").split(os.pathsep)):
+    if os.path.isdir(_p) and Path(_p).resolve() not in ROOTS:
+        ROOTS.append(Path(_p).resolve())
+
+# 휴지통: mac=~/.Trash, linux=XDG 휴지통, 그 외(Windows·Android)=루트 안 앱 전용 휴지통(.FileManager-Trash)
+TRASH_MODE = os.environ.get("FM_TRASH_MODE") or ("mac" if IS_MAC else "app" if (IS_WIN or IS_ANDROID) else "xdg")
+XDG_TRASH = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / "Trash"
+SYS_TRASH = HOME / ".Trash" if TRASH_MODE == "mac" else XDG_TRASH
+APP_TRASH = ".FileManager-Trash"
+_deny = [".ssh", ".gnupg", ".termux"]
+if IS_MAC:
+    _deny += ["Library", "Applications", ".Trash"]
+elif IS_WIN:
+    _deny += ["AppData", "Application Data", "NTUSER.DAT"]
+else:
+    _deny += [".config", ".local", ".cache", ".gradle"]
+DENY = [HOME / n for n in _deny]
+SKIP_NAMES = {".DS_Store", APP_TRASH, "$RECYCLE.BIN", "System Volume Information", "lost+found"}
 PACKAGE_EXT = {".app", ".photoslibrary", ".fcpbundle", ".xcodeproj", ".framework", ".bundle", ".musiclibrary", ".tvlibrary",
                ".imovielibrary", ".theater", ".logicx", ".band", ".rcproject", ".sparsebundle", ".sparseimage", ".rtfd",
                ".pvm", ".vmwarevm", ".xcarchive", ".playground", ".colorsync", ".lrdata", ".lrcat-data", ".aplibrary", ".migratedaplibrary"}
@@ -44,22 +83,43 @@ def under(p, base):
     return p == base or base in p.parents
 
 
+def P(p):
+    """UI·기록에 쓰는 경로는 항상 / 구분자 (Windows는 / 로도 열 수 있음)"""
+    return str(p).replace("\\", "/") if IS_WIN else str(p)
+
+
+def root_of(p):
+    rp = Path(os.path.realpath(p))
+    return next((r for r in ROOTS if under(rp, r)), None)
+
+
 def check(path, allow_root=False):
-    """홈 안의 실경로만 허용. 시스템성 폴더는 거부."""
+    """허용된 루트 안의 실경로만 허용. 시스템성 폴더는 거부."""
     p = Path(path).expanduser()
     if not p.is_absolute():
         raise Err("절대 경로가 필요합니다")
     p = Path(os.path.abspath(p))  # 심볼릭 링크는 따라가지 않고 정규화만
-    if not under(Path(os.path.realpath(p)), HOME):
-        raise Err("홈 폴더 밖은 다룰 수 없습니다")
-    if any(under(p, d) for d in DENY):
-        raise Err("보호된 폴더입니다 (Library, .ssh, Applications, 휴지통)")
-    if p == HOME and not allow_root:
-        raise Err("홈 폴더 자체는 대상이 될 수 없습니다")
+    if root_of(p) is None:
+        raise Err("허용된 폴더(홈 폴더) 밖은 다룰 수 없습니다")
+    if any(under(p, d) for d in DENY) or APP_TRASH in p.parts or (TRASH_MODE != "app" and under(p, SYS_TRASH)):
+        raise Err("보호된 폴더입니다 (시스템·설정 폴더, 휴지통)")
+    if p in ROOTS and not allow_root:
+        raise Err("루트 폴더 자체는 대상이 될 수 없습니다")
     return p
 
 
-def walk(root, hidden=False, files_only=True, skip=()):  # hidden=True여도 .DS_Store는 건너뜀
+def is_hidden(e):
+    if e.name.startswith("."):
+        return True
+    if IS_WIN:
+        try:
+            return bool(e.stat(follow_symlinks=False).st_file_attributes & 2)
+        except (OSError, AttributeError):
+            return False
+    return False
+
+
+def walk(root, hidden=False, files_only=True, skip=()):  # hidden=True여도 SKIP_NAMES(.DS_Store·앱 휴지통 등)는 건너뜀
     """심볼릭 링크·패키지(.app 등) 건너뜀. (경로, stat) 생성."""
     stack = [root]
     while stack:
@@ -69,7 +129,7 @@ def walk(root, hidden=False, files_only=True, skip=()):  # hidden=True여도 .DS
         except OSError:
             continue
         for e in it:
-            if e.name == ".DS_Store" or (not hidden and e.name.startswith(".")):
+            if e.name in SKIP_NAMES or (not hidden and is_hidden(e)):
                 continue
             try:
                 if e.is_symlink():
@@ -98,7 +158,7 @@ def digest(path, limit=None):
 
 
 def fmt(p, st):
-    return {"path": str(p), "size": st.st_size, "mtime": int(st.st_mtime)}
+    return {"path": P(p), "size": st.st_size, "mtime": int(st.st_mtime)}
 
 
 # ---- 스캔 ----
@@ -147,7 +207,7 @@ def scan_big(a):
     return {"files": files[: int(a.get("limit", 200))]}
 
 
-KEEP_FILES = {"Icon\r", "__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll"}
+KEEP_FILES = {"Icon\r", "__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll", "desktop.ini", "Thumbs.db"}
 
 
 def scan_empty(a):
@@ -159,7 +219,7 @@ def scan_empty(a):
     empty = set()
     for d in sorted(alld, key=lambda p: -len(p)):
         try:
-            kids = [k for k in os.listdir(d) if k != ".DS_Store"]
+            kids = [k for k in os.listdir(d) if k not in SKIP_NAMES]
         except OSError:
             continue
         if all(os.path.join(d, k) in empty for k in kids):
@@ -171,7 +231,7 @@ def scan_empty(a):
         rel = Path(p).relative_to(root).parts
         return any(x in DEV_DIRS for x in rel) or any(under(Path(p), Path(pr)) for pr in projects)
 
-    dirs = [{"path": d, "size": 0, "mtime": int(os.stat(d).st_mtime)} for d in sorted(empty) if os.path.dirname(d) not in empty]
+    dirs = [{"path": P(d), "size": 0, "mtime": int(os.stat(d).st_mtime)} for d in sorted(empty) if os.path.dirname(d) not in empty]
     skipped = 0
     if not dev:
         n = len(dirs) + len(zero)
@@ -198,7 +258,7 @@ def plan_org(a):
     mode = a.get("mode", "type")
     plan, taken = [], set()
     for e in sorted(os.scandir(root), key=lambda e: e.name):
-        if e.name.startswith(".") or not e.is_file(follow_symlinks=False):
+        if is_hidden(e) or e.name in KEEP_FILES or not e.is_file(follow_symlinks=False):
             continue
         st = e.stat()
         ext = Path(e.name).suffix.lower()
@@ -209,7 +269,7 @@ def plan_org(a):
         while str(dst) in taken:
             dst = unique(dst.with_name(dst.stem + " (x)" + dst.suffix))
         taken.add(str(dst))
-        plan.append({"src": e.path, "dst": str(dst), "size": st.st_size})
+        plan.append({"src": P(e.path), "dst": P(dst), "size": st.st_size})
     return {"plan": plan}
 
 
@@ -219,7 +279,7 @@ def plan_rename(a):
     find, repl = a.get("find", ""), a.get("repl", "")
     case, nfc = a.get("case", ""), a.get("nfc", False)
     start, pad = int(a.get("start", 1)), int(a.get("pad", 2))
-    names = [e for e in sorted(os.scandir(root), key=lambda e: e.name) if e.is_file(follow_symlinks=False) and not e.name.startswith(".")]
+    names = [e for e in sorted(os.scandir(root), key=lambda e: e.name) if e.is_file(follow_symlinks=False) and not is_hidden(e)]
     if a.get("ext"):
         names = [e for e in names if Path(e.name).suffix.lower() == a["ext"].lower()]
     plan, targets = [], set()
@@ -233,12 +293,12 @@ def plan_rename(a):
         if case == "lower": new = new.lower()
         elif case == "upper": new = new.upper()
         if nfc: new = unicodedata.normalize("NFC", new)
-        new = new.replace("/", "_").strip()
+        new = "".join("_" if c in '/\\:*?"<>|' else c for c in new).strip()  # Windows 금지 문자까지 치환
         dst = str(root / new)
         conflict = (new == "" or new.startswith(".")
                     or dst in targets or (dst != e.path and os.path.lexists(dst) and unicodedata.normalize("NFC", dst) != unicodedata.normalize("NFC", e.path)))
         targets.add(dst)
-        plan.append({"src": e.path, "dst": dst, "old": e.name, "new": new, "same": dst == e.path, "conflict": bool(conflict)})
+        plan.append({"src": P(e.path), "dst": P(dst), "old": e.name, "new": new, "same": dst == e.path, "conflict": bool(conflict)})
     return {"plan": plan}
 
 
@@ -251,23 +311,53 @@ def jload():
 
 
 def jsave(j):
-    JOURNAL.parent.mkdir(exist_ok=True)
+    JOURNAL.parent.mkdir(parents=True, exist_ok=True)
     JOURNAL.write_text(json.dumps(j[-200:], ensure_ascii=False, indent=1))
+
+
+def app_trash_dirs():
+    return [r / APP_TRASH for r in ROOTS]
 
 
 def disk():
     u = shutil.disk_usage(HOME)
-    # ~/.Trash 목록은 macOS 권한(TCC)으로 못 읽을 수 있어, 이 앱이 보낸 항목 중 아직 휴지통에 있는 것만 합산한다
     mine = 0
-    for e in jload():
-        if e["label"] != "휴지통" or e["undone"]:
-            continue
-        for op in e["ops"]:
-            try:
-                mine += os.stat(op["dst"]).st_size if os.path.isfile(op["dst"]) else 0
-            except OSError:
-                pass
-    return {"total": u.total, "free": u.free, "trash": mine}
+    if TRASH_MODE == "app":  # 앱 전용 휴지통은 직접 읽을 수 있다
+        for t in app_trash_dirs():
+            if t.is_dir():
+                mine += sum(st.st_size for _, st, _ in walk(t, True))
+    else:  # 시스템 휴지통 목록은 권한(macOS TCC)으로 못 읽을 수 있어, 이 앱이 보낸 항목 중 아직 있는 것만 합산한다
+        for e in jload():
+            if e["label"] != "휴지통" or e["undone"]:
+                continue
+            for op in e["ops"]:
+                try:
+                    mine += os.stat(op["dst"]).st_size if os.path.isfile(op["dst"]) else 0
+                except OSError:
+                    pass
+    return {"total": u.total, "free": u.free, "trash": mine, "mode": TRASH_MODE}
+
+
+def trash_move(p):
+    """p를 휴지통으로 옮기고 (대상 경로, 추가 정보) 반환"""
+    if TRASH_MODE == "mac":
+        dst = unique(SYS_TRASH / p.name)
+        shutil.move(str(p), str(dst))
+        return dst, None
+    if TRASH_MODE == "xdg":  # freedesktop 휴지통 규격: files/ + info/*.trashinfo (파일 관리자에서 복원 가능)
+        (SYS_TRASH / "files").mkdir(parents=True, exist_ok=True)
+        (SYS_TRASH / "info").mkdir(parents=True, exist_ok=True)
+        dst = unique(SYS_TRASH / "files" / p.name)
+        info = SYS_TRASH / "info" / (dst.name + ".trashinfo")
+        info.write_text(f"[Trash Info]\nPath={quote(str(p))}\nDeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n")
+        shutil.move(str(p), str(dst))
+        return dst, str(info)
+    root = root_of(p)
+    tdir = (root or HOME) / APP_TRASH
+    tdir.mkdir(exist_ok=True)
+    dst = unique(tdir / p.name)
+    shutil.move(str(p), str(dst))
+    return dst, None
 
 
 def do_trash(a):
@@ -281,15 +371,39 @@ def do_trash(a):
             if p.is_dir() and any(True for _ in walk(p, True)):
                 raise Err("파일이 들어 있는 폴더는 휴지통으로 보내지 않습니다")
             size = p.stat().st_size if p.is_file() else 0
-            dst = unique(TRASH / p.name)
-            shutil.move(str(p), str(dst))
-            ops.append({"src": str(p), "dst": str(dst)})
+            dst, info = trash_move(p)
+            op = {"src": P(p), "dst": P(dst)}
+            if info:
+                op["info"] = info
+            ops.append(op)
             freed += size
         except (Err, OSError) as e:
             errs.append({"path": raw, "error": str(e)})
     r = log("휴지통", ops, errs)
     r.update(freed=freed, disk=disk(), free_before=before)  # 휴지통에 넣은 용량 (비워야 실제 확보)
     return r
+
+
+def do_trash_empty(a):
+    """앱 전용 휴지통 비우기(영구 삭제). Windows·Android처럼 시스템 휴지통을 쓰지 않는 환경에서만 허용."""
+    if TRASH_MODE != "app":
+        raise Err("이 환경은 시스템 휴지통을 씁니다. 파일 관리자에서 비우세요")
+    freed = n = 0
+    for t in app_trash_dirs():
+        if not t.is_dir():
+            continue
+        for e in os.scandir(t):
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    freed += sum(st.st_size for _, st, _ in walk(e.path, True))
+                    shutil.rmtree(e.path)
+                else:
+                    freed += e.stat().st_size
+                    os.remove(e.path)
+                n += 1
+            except OSError:
+                pass
+    return {"removed": n, "freed": freed, "disk": disk()}
 
 
 def do_move(a):
@@ -305,7 +419,7 @@ def do_move(a):
                 continue
             d.parent.mkdir(parents=True, exist_ok=True)
             os.rename(s, d)
-            ops.append({"src": str(s), "dst": str(d)})
+            ops.append({"src": P(s), "dst": P(d)})
         except (Err, OSError) as e:
             errs.append({"path": m.get("src"), "error": str(e)})
     return log(a.get("label", "이동"), ops, errs)
@@ -334,6 +448,11 @@ def do_undo(a):
                 raise Err("원래 위치에 같은 이름이 있음")
             src.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(dst), str(src))
+            if op.get("info"):
+                try:
+                    os.remove(op["info"])
+                except OSError:
+                    pass
             ok += 1
         except (Err, OSError) as e:
             errs.append({"path": op["dst"], "error": str(e)})
@@ -344,16 +463,24 @@ def do_undo(a):
 
 
 def do_ls(q):
-    p = Path(q.get("path", [str(HOME)])[0]).expanduser()
-    p = Path(os.path.abspath(p))
-    if not under(Path(os.path.realpath(p)), HOME):
-        raise Err("홈 폴더 밖")
-    dirs = sorted(e.name for e in os.scandir(p) if e.is_dir(follow_symlinks=False) and not e.name.startswith("."))
-    return {"path": str(p), "parent": str(p.parent) if p != HOME else None, "dirs": dirs}
+    p = Path(os.path.abspath(Path(q.get("path", [str(HOME)])[0]).expanduser()))
+    rt = root_of(p)
+    if rt is None:
+        raise Err("허용된 폴더 밖")
+    dirs = sorted(e.name for e in os.scandir(p) if e.is_dir(follow_symlinks=False) and not is_hidden(e) and e.name not in SKIP_NAMES)
+    return {"path": P(p), "parent": P(p.parent) if p not in ROOTS else None, "dirs": dirs}
 
 
 ROUTES = {"disk": lambda a: disk(), "dup": scan_dup, "big": scan_big, "empty": scan_empty, "org": plan_org, "rename": plan_rename,
-          "trash": do_trash, "move": do_move, "undo": do_undo}
+          "trash": do_trash, "trash_empty": do_trash_empty, "move": do_move, "undo": do_undo}
+
+
+def load_ui():
+    f = RES / "index.html"
+    if f.exists():
+        return f.read_text(encoding="utf-8")
+    import base64
+    return base64.b64decode(EMBEDDED_UI).decode("utf-8")
 
 
 class H(BaseHTTPRequestHandler):
@@ -378,7 +505,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(403, {"error": "host"})
         try:
             if u.path == "/":
-                html = (RES / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN).replace("__HOME__", str(HOME))
+                html = load_ui().replace("__TOKEN__", TOKEN).replace("__HOME__", P(HOME)).replace(
+                    "__ROOTS__", json.dumps([{"name": "홈" if r == HOME else r.name or P(r), "path": P(r)} for r in ROOTS], ensure_ascii=False))
                 return self.send(200, html.encode(), "text/html; charset=utf-8")
             if u.path == "/api/ls":
                 return self.send(200, do_ls(parse_qs(u.query)))
@@ -416,10 +544,20 @@ def already_running():
         return False
 
 
+def open_browser(url):
+    if IS_ANDROID:  # Termux: termux-open-url(termux-tools)이 있으면 사용
+        if shutil.which("termux-open-url"):
+            os.system(f'termux-open-url "{url}"')
+        return
+    webbrowser.open(url)
+
+
 if __name__ == "__main__":
-    auto = FROZEN or os.environ.get("FM_OPEN") == "1"
+    args = sys.argv[1:]
+    auto = FROZEN or "--open" in args or os.environ.get("FM_OPEN") == "1"
+    autoquit = FROZEN or "--autoquit" in args
     if auto and already_running():  # 앱을 또 실행하면 새 서버를 만들지 않고 기존 화면만 연다
-        webbrowser.open(f"http://127.0.0.1:{PORT}/")
+        open_browser(f"http://127.0.0.1:{PORT}/")
         sys.exit(0)
     try:
         srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
@@ -427,10 +565,10 @@ if __name__ == "__main__":
         srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
         PORT = srv.server_address[1]
     url = f"http://127.0.0.1:{PORT}/"
-    print(f"파일 관리: {url}  (종료: Ctrl+C)")
+    print(f"파일 관리: {url}  (종료: Ctrl+C)  · 휴지통 방식: {TRASH_MODE} · 루트: {', '.join(P(r) for r in ROOTS)}", flush=True)
     if auto:
-        threading.Timer(0.8, webbrowser.open, [url]).start()
-    if FROZEN:  # 브라우저 탭이 닫히면(핑이 끊기면) 종료
+        threading.Timer(0.8, open_browser, [url]).start()
+    if autoquit:  # 브라우저 탭이 닫히면(핑이 끊기면) 종료
         def watch():
             started = time.time()
             while True:

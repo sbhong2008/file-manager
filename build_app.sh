@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 python3 -m venv .buildenv
 .buildenv/bin/pip install -q pyinstaller
-rm -rf build dist
+rm -rf build dist/FileManager dist/FileManager.app dist/FileManager.zip
 .buildenv/bin/pyinstaller --noconfirm --windowed --name "FileManager" \
   --osx-bundle-identifier com.local.filemanager \
   --add-data "index.html:." server.py

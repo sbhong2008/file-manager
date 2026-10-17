@@ -53,7 +53,9 @@ td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
 <div id="pkbg" hidden><div id="pk"></div></div>
 <main id="view"></main><div id="toast"></div>
 <script>
-const TOKEN="__TOKEN__",HOME="__HOME__";
+const TOKEN="__TOKEN__",HOME="__HOME__",ROOTS=__ROOTS__;
+const baseOf=p=>ROOTS.find(r=>p===r.path||p.startsWith(r.path.replace(/\/$/,"")+"/"))||ROOTS[0];
+const norm=p=>p.trim().replace(/\\/g,"/");
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmtSize=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":n<1073741824?(n/1048576).toFixed(1)+" MB":(n/1073741824).toFixed(2)+" GB";
@@ -63,29 +65,30 @@ function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";cl
 async function api(name,body){
   const r=await fetch("/api/"+name,{method:"POST",headers:{"X-Token":TOKEN,"Content-Type":"application/json"},body:JSON.stringify(body||{})});
   const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
-const root=()=>{const v=$("#root").value.trim();if(!v)throw new Error("폴더 경로를 입력하세요");return v};
-$("#root").value=localStorage.getItem("fm_root")||HOME+"/Downloads";
+const root=()=>{const v=norm($("#root").value);if(!v)throw new Error("폴더 경로를 입력하세요");return v};
+$("#root").value=localStorage.getItem("fm_root")||(ROOTS.length>1?ROOTS[1].path+"/Download":HOME+"/Downloads");
 $("#root").onchange=()=>localStorage.setItem("fm_root",$("#root").value);
 
 // 폴더 선택기: Finder 컬럼 보기 (사이드바 · 뒤로/앞으로 · 열 · 경로 막대)
-const PK={cols:[],hist:[],hi:-1,side:[]};
+const PK={cols:[],hist:[],hi:-1,side:[],base:ROOTS[0]};
 const closePk=()=>{$("#pkbg").hidden=true};
 const lsDirs=async p=>{const j=await (await fetch("/api/ls?path="+encodeURIComponent(p))).json();if(j.error)throw new Error(j.error);return j.dirs};
 const pkPath=()=>{const c=PK.cols.filter(c=>c.sel!=null);return c.length?PK.cols[c.length-1].path+"/"+PK.cols[c.length-1].sel:PK.cols[0].path};
 async function pkOpen(target){ // target 경로까지 열(column)을 펼친다
-  const rel=target.startsWith(HOME)?target.slice(HOME.length).split("/").filter(Boolean):[];
-  const cols=[{path:HOME,dirs:await lsDirs(HOME),sel:null}];
+  const base=PK.base=baseOf(target);
+  const rel=target.startsWith(base.path)?target.slice(base.path.length).split("/").filter(Boolean):[];
+  const cols=[{path:base.path,dirs:await lsDirs(base.path),sel:null}];
   for(const part of rel){const last=cols[cols.length-1];if(!last.dirs.includes(part))break;last.sel=part;const p=last.path+"/"+part;cols.push({path:p,dirs:await lsDirs(p),sel:null})}
   PK.cols=cols;pkDraw(true)}
 async function pkPush(target){if(PK.hist[PK.hi]!==target){PK.hist=PK.hist.slice(0,PK.hi+1);PK.hist.push(target);PK.hi=PK.hist.length-1}await pkOpen(target)}
 function pkDraw(scroll){
   const cur=pkPath(),name=cur.split("/").pop()||"/";
-  const sideItems=[["홈",HOME],...PK.side.map(([l,n])=>[l,HOME+"/"+n])];
-  const crumbs=cur.slice(HOME.length).split("/").filter(Boolean);
+  const B=PK.base.path,sideItems=[...ROOTS.map(r=>[r.name,r.path]),...PK.side];
+  const crumbs=cur.slice(B.length).split("/").filter(Boolean);
   $("#pk").innerHTML=`<div class="tb"><button id="pkb" ${PK.hi>0?"":"disabled"}>‹</button><button id="pkf" ${PK.hi<PK.hist.length-1?"":"disabled"}>›</button><b>📁 ${esc(name)}</b></div>
-  <div class="mid"><div class="side"><h6>즐겨찾기</h6>${sideItems.map(([l,p])=>`<div data-s="${esc(p)}" class="${cur===p||cur.startsWith(p+"/")&&p!==HOME?"on":""}">${l==="홈"?"🏠":"📁"} ${esc(l)}</div>`).join("")}</div>
+  <div class="mid"><div class="side"><h6>즐겨찾기</h6>${sideItems.map(([l,p])=>`<div data-s="${esc(p)}" class="${cur===p||cur.startsWith(p+"/")&&!ROOTS.some(r=>r.path===p)?"on":""}">${ROOTS.some(r=>r.path===p)?"🏠":"📁"} ${esc(l)}</div>`).join("")}</div>
   <div class="cols">${PK.cols.map((c,i)=>`<div class="col ${i<PK.cols.length-1?"":"last"}" data-i="${i}">`+(c.dirs.length?c.dirs.map(d=>`<div data-d="${esc(d)}" class="${c.sel===d?"sel2":""}"><span>📁</span><span class="n">${esc(d)}</span><i>›</i></div>`).join(""):`<div class="mu" style="display:block">하위 폴더 없음</div>`)+`</div>`).join("")}</div></div>
-  <div class="bar"><span data-c="">🏠 ${esc(HOME.split("/").pop())}</span>${crumbs.map((c,i)=>` › <span data-c="${esc(crumbs.slice(0,i+1).join("/"))}">📁 ${esc(c)}</span>`).join("")}</div>
+  <div class="bar"><span data-c="">🏠 ${esc(PK.base.name)}</span>${crumbs.map((c,i)=>` › <span data-c="${esc(crumbs.slice(0,i+1).join("/"))}">📁 ${esc(c)}</span>`).join("")}</div>
   <div class="ft"><button id="pkc">취소</button><button class="pri" id="pks">선택</button></div>`;
   const cols=$("#pk .cols");document.querySelectorAll("#pk .col").forEach((el,i)=>{if(i<PK.cols.length-1)el.classList.add("dim")});
   if(scroll){cols.scrollLeft=cols.scrollWidth;const s=document.querySelector("#pk .col .sel2");document.querySelectorAll("#pk .col").forEach(c=>{const x=c.querySelector(".sel2");if(x)c.scrollTop=Math.max(0,x.offsetTop-80)})}}
@@ -96,19 +99,23 @@ $("#pk").addEventListener("click",async e=>{
   else if(t.closest("#pkc"))closePk();
   else if(t.closest("#pks")){$("#root").value=pkPath();$("#root").onchange();closePk()}
   else if(t.closest("[data-s]"))pkPush(t.closest("[data-s]").dataset.s);
-  else if(t.closest("[data-c]"))pkPush(HOME+(t.closest("[data-c]").dataset.c?"/"+t.closest("[data-c]").dataset.c:""));
+  else if(t.closest("[data-c]"))pkPush(PK.base.path+(t.closest("[data-c]").dataset.c?"/"+t.closest("[data-c]").dataset.c:""));
   else if(t.closest("[data-d]")){const col=t.closest(".col"),i=+col.dataset.i,d=t.closest("[data-d]").dataset.d;
     try{const c=PK.cols[i],p=c.path+"/"+d;const dirs=await lsDirs(p);c.sel=d;PK.cols=PK.cols.slice(0,i+1);PK.cols.push({path:p,dirs,sel:null});
       PK.hist=PK.hist.slice(0,PK.hi+1);PK.hist.push(p);PK.hi=PK.hist.length-1;pkDraw(true)}catch(x){toast(x.message)}}});
 $("#pk").addEventListener("dblclick",e=>{if(e.target.closest("[data-d]"))$("#pks").click()});
 $("#browse").onclick=async()=>{try{
-  if(!PK.side.length){const d=await lsDirs(HOME);PK.side=[["데스크탑","Desktop"],["문서","Documents"],["다운로드","Downloads"],["사진","Pictures"],["영화","Movies"],["음악","Music"]].filter(([,n])=>d.includes(n))}
-  $("#pkbg").hidden=false;const v=$("#root").value.trim();PK.hist=[];PK.hi=-1;await pkPush(v.startsWith(HOME)?v:HOME)}catch(e){toast(e.message);closePk()}};
+  if(!PK.side.length){const L={Desktop:"데스크탑",Documents:"문서",Downloads:"다운로드",Download:"다운로드",Pictures:"사진",DCIM:"카메라(DCIM)",Movies:"영화",Videos:"동영상",Music:"음악"};
+    for(const r of ROOTS){const d=await lsDirs(r.path);for(const n of Object.keys(L))if(d.includes(n))PK.side.push([L[n],r.path+"/"+n])}}
+  $("#pkbg").hidden=false;const v=norm($("#root").value);PK.hist=[];PK.hi=-1;await pkPush(ROOTS.some(r=>v===r.path||v.startsWith(r.path+"/"))?v:ROOTS[0].path)}catch(e){toast(e.message);closePk()}};
 $("#pkbg").addEventListener("mousedown",e=>{if(e.target.id==="pkbg")closePk()});
 document.addEventListener("keydown",e=>{if($("#pkbg").hidden)return;if(e.key==="Escape")closePk();if(e.key==="Enter")$("#pks").click()});
 
 // 탭
-async function diskInfo(){try{const d=await api("disk");$("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(d.trash===null?"":` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`)}catch(e){}}
+let TRASH_MODE="";
+async function diskInfo(){try{const d=await api("disk");TRASH_MODE=d.mode;const app=d.mode==="app";
+  $("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(app?` · 앱 휴지통 <b>${fmtSize(d.trash)}</b> <button id="empty" style="font-size:12px;padding:1px 8px">휴지통 비우기</button>`:` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`);
+  if(app)$("#empty").onclick=async()=>{if(!confirm("앱 휴지통을 비웁니다. 비운 파일은 복구할 수 없습니다. 계속할까요?"))return;try{const r=await api("trash_empty");toast(`${fmtSize(r.freed)} 확보 (${r.removed}개 영구 삭제)`);diskInfo()}catch(e){fail(e)}}}catch(e){}}
 diskInfo();
 setInterval(()=>fetch("/api/ping").catch(()=>{}),5000);fetch("/api/ping").catch(()=>{});
 $("#quit").onclick=async()=>{if(!confirm("파일 관리 앱을 종료합니다. (작업 기록은 보관됩니다)"))return;try{await api("quit")}catch(e){}document.body.innerHTML='<p style="padding:30px">종료되었습니다. 이 탭을 닫아도 됩니다.</p>'};
@@ -129,7 +136,7 @@ function wireSel(afterTrash,guard){
   $("#none").onclick=()=>{document.querySelectorAll(".sel").forEach(x=>x.checked=false);upd()};
   $("#do").onclick=async()=>{if(guard&&!guard())return;const ps=[...document.querySelectorAll(".sel:checked")].map(x=>x.dataset.p);
     if(!confirm(`${ps.length}개를 휴지통으로 보냅니다. (기록 탭에서 되돌릴 수 있음)`))return;
-    try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개 · ${fmtSize(r.freed)} 정리`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:"")+" — 휴지통을 비우면 여유 공간이 늘어납니다");diskInfo();afterTrash()}catch(e){fail(e)}};
+    try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개 · ${fmtSize(r.freed)} 정리`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:"")+(TRASH_MODE==="app"?" — 위의 [휴지통 비우기]를 누르면 여유 공간이 늘어납니다":" — 휴지통을 비우면 여유 공간이 늘어납니다"));diskInfo();afterTrash()}catch(e){fail(e)}};
   upd()}
 
 const V={};
@@ -183,7 +190,7 @@ V.rename=()=>{view(`<div class="card"><div class="row"><label>형식 <input id="
   if(!r.plan.length){$("#res").innerHTML=`<div class="card">대상 파일이 없습니다.</div>`;return}planCard(r.plan,"이름 바꾸기")}catch(e){fail(e)}}};
 // 기록
 V.log=async()=>{try{const j=await (await fetch("/api/journal")).json();
- view(`<div class="card">`+(j.journal.length?`<table><tr><th>시각</th><th>작업</th><th>개수</th><th></th></tr>`+j.journal.map(e=>`<tr><td>${e.at}</td><td>${esc(e.label)}</td><td>${e.ops.length}</td><td class="n">${e.undone?'<span class="mu">되돌림</span>':`<button data-u="${e.id}">되돌리기</button>`}</td></tr>`).join("")+`</table><div class="mu" style="margin-top:8px">휴지통으로 보낸 항목은 ~/.Trash 에서 원래 위치로 복원됩니다(Finder의 '되돌려놓기'와 별개). 휴지통을 이미 비웠다면 복원할 수 없습니다.</div>`:"기록이 없습니다.")+`</div>`);
+ view(`<div class="card">`+(j.journal.length?`<table><tr><th>시각</th><th>작업</th><th>개수</th><th></th></tr>`+j.journal.map(e=>`<tr><td>${e.at}</td><td>${esc(e.label)}</td><td>${e.ops.length}</td><td class="n">${e.undone?'<span class="mu">되돌림</span>':`<button data-u="${e.id}">되돌리기</button>`}</td></tr>`).join("")+`</table><div class="mu" style="margin-top:8px">휴지통으로 보낸 항목은 휴지통에서 원래 위치로 복원됩니다(OS 휴지통의 '되돌려놓기'와는 별개). 휴지통을 이미 비웠다면 복원할 수 없습니다.</div>`:"기록이 없습니다.")+`</div>`);
  $("#view").onclick=async e=>{const id=e.target.dataset.u;if(!id)return;try{const r=await api("undo",{id:+id});diskInfo();toast(`복원 ${r.restored}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));V.log()}catch(x){fail(x)}}}catch(e){fail(e)}};
 go(localStorage.getItem("fm_tab")||"dup");
 </script></body></html>
