@@ -64,12 +64,12 @@ const fail=e=>{toast(e.message);return e};
 
 // 선택·휴지통 공통
 function selBar(){return `<div class="row"><button id="all">전체 선택</button><button id="none">해제</button><span id="cnt" class="mu"></span><span style="flex:1"></span><button id="do" class="dng" disabled>선택 항목 휴지통으로</button></div>`}
-function wireSel(afterTrash){
+function wireSel(afterTrash,guard){
   const upd=()=>{const c=[...document.querySelectorAll(".sel:checked")];const sz=c.reduce((a,x)=>a+ +x.dataset.s,0);$("#cnt").textContent=c.length?`${c.length}개 · ${fmtSize(sz)}`:"";$("#do").disabled=!c.length};
   $("#view").onchange=e=>{if(e.target.classList.contains("sel"))upd()};
   $("#all").onclick=()=>{document.querySelectorAll(".sel:not(:disabled)").forEach(x=>x.checked=true);upd()};
   $("#none").onclick=()=>{document.querySelectorAll(".sel").forEach(x=>x.checked=false);upd()};
-  $("#do").onclick=async()=>{const ps=[...document.querySelectorAll(".sel:checked")].map(x=>x.dataset.p);
+  $("#do").onclick=async()=>{if(guard&&!guard())return;const ps=[...document.querySelectorAll(".sel:checked")].map(x=>x.dataset.p);
     if(!confirm(`${ps.length}개를 휴지통으로 보냅니다. (기록 탭에서 되돌릴 수 있음)`))return;
     try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));afterTrash()}catch(e){fail(e)}};
   upd()}
@@ -91,7 +91,9 @@ V.dup=()=>{view(`<div class="card"><div class="row"><label>최소 크기 <select
     let keep=refIdx>=0?refIdx:g.files.map((f,j)=>j).sort((a,b)=>cmp(g.files[a],g.files[b]))[0];
     rows.forEach((tr,j)=>{const c=tr.querySelector(".sel");if(!c.disabled)c.checked=j!==keep})});$("#view").dispatchEvent(new Event("change",{bubbles:true}));document.querySelectorAll(".sel")[0].dispatchEvent(new Event("change",{bubbles:true}))};
   $("#keepOld").onclick=()=>auto((a,b)=>a.mtime-b.mtime);$("#keepNew").onclick=()=>auto((a,b)=>b.mtime-a.mtime);$("#keepShort").onclick=()=>auto((a,b)=>a.path.length-b.path.length);
-  wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
+  wireSel(()=>$("#go").click(),()=>{const bad=[...document.querySelectorAll("table[data-g]")].filter(t=>{const b=[...t.querySelectorAll(".sel")];return b.every(x=>x.checked||x.disabled)&&!b.some(x=>x.disabled)});
+    if(bad.length){toast(`${bad.length}개 그룹에서 모든 복사본이 선택됐습니다. 그룹마다 하나는 남겨야 합니다.`);return false}return true});
+  $("#all").onclick=()=>auto((a,b)=>a.mtime-b.mtime)}catch(e){fail(e);$("#res").innerHTML=""}}};
 const busy2=m=>{$("#res").innerHTML=`<div class="card">${m}…</div>`};
 // 큰 파일
 V.big=()=>{view(`<div class="card"><div class="row"><label>표시 개수 <select id="lim"><option>50</option><option selected>200</option><option>500</option></select></label><label><input type="checkbox" id="hid"> 숨김 포함</label><button class="pri" id="go">큰 파일 찾기</button></div></div><div id="res"></div>`);
