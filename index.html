@@ -11,7 +11,7 @@ h1{font-size:16px;margin:0 0 8px}
 .path{display:flex;gap:6px;flex-wrap:wrap}.path input{flex:1;min-width:200px}
 input,select,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--ln);border-radius:6px;padding:5px 9px}
 button{cursor:pointer}button.pri{background:var(--ac);border-color:var(--ac);color:#fff}button.dng{color:var(--rd);border-color:var(--rd)}button:disabled{opacity:.45;cursor:default}
-nav{display:flex;gap:2px;overflow-x:auto;margin-top:8px}nav button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mu)}nav button.on{color:var(--ac);border-color:var(--ac);font-weight:600}
+nav{display:flex;gap:2px;overflow-x:auto;margin-top:8px}nav button{white-space:nowrap;flex:none;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mu)}nav button.on{color:var(--ac);border-color:var(--ac);font-weight:600}
 main{padding:14px 16px;max-width:1000px;margin:auto}
 .card{background:var(--card);border:1px solid var(--ln);border-radius:8px;padding:12px;margin-bottom:12px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.mu{color:var(--mu);font-size:12px}
@@ -19,8 +19,13 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
 .tag{font-size:11px;border-radius:4px;padding:0 5px;border:1px solid var(--ln);color:var(--mu)}.tag.ref{color:var(--gn);border-color:var(--gn)}
 .bad{color:var(--rd)}.ok{color:var(--gn)}.warn{color:var(--wn)}
-#picker{position:absolute;background:var(--card);border:1px solid var(--ln);border-radius:8px;padding:8px;max-height:260px;overflow:auto;z-index:9;box-shadow:0 6px 20px #0003;min-width:260px}
-#picker div{padding:3px 6px;cursor:pointer;border-radius:4px}#picker div:hover{background:var(--bg)}
+#picker{position:fixed;left:16px;width:min(560px,calc(100vw - 32px));background:var(--card);border:1px solid var(--ln);border-radius:10px;z-index:9;box-shadow:0 8px 28px #0004;display:flex;flex-direction:column;max-height:min(60vh,460px)}
+#picker[hidden]{display:none}
+#picker .ph{padding:10px 12px;border-bottom:1px solid var(--ln);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#picker .cur{flex:1;min-width:0;font-size:12px;color:var(--mu);word-break:break-all}
+#picker .ls{overflow:auto;padding:4px}
+#picker .ls div{padding:7px 10px;cursor:pointer;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#picker .ls div:hover{background:var(--bg)}
 #toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none;z-index:20;max-width:90%}
 </style></head><body>
 <header>
@@ -46,13 +51,15 @@ const root=()=>{const v=$("#root").value.trim();if(!v)throw new Error("폴더 �
 $("#root").value=localStorage.getItem("fm_root")||HOME+"/Downloads";
 $("#root").onchange=()=>localStorage.setItem("fm_root",$("#root").value);
 
-// 폴더 선택기
-$("#browse").onclick=async e=>{const pk=$("#picker");if(!pk.hidden){pk.hidden=true;return}
-  const r=$("#browse").getBoundingClientRect();pk.style.left=r.left+"px";pk.style.top=(r.bottom+window.scrollY+4)+"px";pk.hidden=false;
-  await list($("#root").value||HOME)};
+// 폴더 선택기: 헤더 아래 고정 패널(화면 폭에 맞춤), 바깥 클릭·Esc로 닫기
+const closePk=()=>{$("#picker").hidden=true};
+$("#browse").onclick=async()=>{const pk=$("#picker");if(!pk.hidden){closePk();return}
+  pk.style.top=($("header").getBoundingClientRect().bottom+4)+"px";pk.hidden=false;await list($("#root").value||HOME)};
+document.addEventListener("click",e=>{if(!e.target.closest("#picker,#browse"))closePk()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closePk()});
 async function list(p){try{const j=await (await fetch("/api/ls?path="+encodeURIComponent(p))).json();if(j.error)throw new Error(j.error);
-  const pk=$("#picker");pk.innerHTML=`<div class="mu">${esc(j.path)}</div><div data-p="${esc(j.path)}" class="ok">✓ 이 폴더 선택</div>`+(j.parent?`<div data-p="${esc(j.parent)}" data-nav>⬆ 위로</div>`:"")+j.dirs.map(d=>`<div data-p="${esc(j.path+"/"+d)}" data-nav>📁 ${esc(d)}</div>`).join("");
-  pk.onclick=ev=>{const d=ev.target.closest("[data-p]");if(!d)return;if(d.hasAttribute("data-nav"))list(d.dataset.p);else{$("#root").value=d.dataset.p;$("#root").onchange();pk.hidden=true}}}catch(e){toast(e.message)}}
+  const pk=$("#picker");pk.innerHTML=`<div class="ph"><div class="cur">${esc(j.path)}</div>${j.parent?`<button data-p="${esc(j.parent)}" data-nav>⬆ 위로</button>`:""}<button class="pri" data-p="${esc(j.path)}">이 폴더 선택</button></div><div class="ls">`+(j.dirs.length?j.dirs.map(d=>`<div title="${esc(d)}" data-p="${esc(j.path+"/"+d)}" data-nav>📁 ${esc(d)}</div>`).join(""):`<div class="mu">하위 폴더 없음</div>`)+`</div>`;
+  pk.onclick=ev=>{const d=ev.target.closest("[data-p]");if(!d)return;if(d.hasAttribute("data-nav"))list(d.dataset.p);else{$("#root").value=d.dataset.p;$("#root").onchange();closePk()}}}catch(e){toast(e.message)}}
 
 // 탭
 async function diskInfo(){try{const d=await api("disk");$("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(d.trash===null?"":` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`)}catch(e){}}
