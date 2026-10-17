@@ -26,6 +26,9 @@ CATS = {
 }
 
 
+DEV_DIRS = {".git", "node_modules", "venv", ".venv", "env", "__pycache__", "site-packages", ".idea", ".tox", "Pods"}
+
+
 class Err(Exception):
     pass
 
@@ -49,7 +52,7 @@ def check(path, allow_root=False):
     return p
 
 
-def walk(root, hidden=False, files_only=True):  # hidden=True여도 .DS_Store는 건너뜀
+def walk(root, hidden=False, files_only=True, skip=()):  # hidden=True여도 .DS_Store는 건너뜀
     """심볼릭 링크·패키지(.app 등) 건너뜀. (경로, stat) 생성."""
     stack = [root]
     while stack:
@@ -65,7 +68,7 @@ def walk(root, hidden=False, files_only=True):  # hidden=True여도 .DS_Store는
                 if e.is_symlink():
                     continue
                 if e.is_dir(follow_symlinks=False):
-                    if Path(e.name).suffix.lower() in PACKAGE_EXT or Path(e.path) in DENY:
+                    if Path(e.name).suffix.lower() in PACKAGE_EXT or Path(e.path) in DENY or e.name in skip:
                         continue
                     stack.append(e.path)
                     if not files_only:
@@ -97,7 +100,7 @@ def scan_dup(a):
     refs = [check(r, True) for r in a.get("refs", []) if r]
     min_size = max(1, int(a.get("min_size", 1)))
     by_size, seen_inodes = {}, set()
-    for p, st, _ in walk(root, a.get("hidden", False)):
+    for p, st, _ in walk(root, a.get("hidden", False), skip=() if a.get("dev") else DEV_DIRS):
         key = (st.st_dev, st.st_ino)
         if st.st_size < min_size or key in seen_inodes:  # 하드링크는 같은 파일로 취급
             continue
@@ -132,12 +135,11 @@ def scan_dup(a):
 
 def scan_big(a):
     root = check(a["path"], True)
-    files = [fmt(p, st) for p, st, _ in walk(root, a.get("hidden", False))]
+    files = [fmt(p, st) for p, st, _ in walk(root, a.get("hidden", False), skip=() if a.get("dev") else DEV_DIRS)]
     files.sort(key=lambda f: -f["size"])
     return {"files": files[: int(a.get("limit", 200))]}
 
 
-DEV_DIRS = {".git", "node_modules", "venv", ".venv", "env", "__pycache__", "site-packages", ".idea", ".tox", "Pods"}
 KEEP_FILES = {"Icon\r", "__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll"}
 
 

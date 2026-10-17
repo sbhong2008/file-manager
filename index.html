@@ -133,11 +133,12 @@ function wireSel(afterTrash,guard){
 const V={};
 // 중복
 V.dup=()=>{view(`<div class="card"><div class="row"><label>최소 크기 <select id="ms"><option value="1">전체</option><option value="102400">100KB</option><option value="1048576" selected>1MB</option><option value="10485760">10MB</option></select></label>
- <label><input type="checkbox" id="hid"> 숨김 포함</label></div>
+ <label><input type="checkbox" id="hid"> 숨김 포함</label>
+ <label><input type="checkbox" id="dev"> 개발 폴더(venv·node_modules·.git) 포함 <span class="warn">(권장 안 함)</span></label></div>
  <div class="row"><input id="refs" style="flex:1" placeholder="기준(보존) 폴더 — 쉼표로 여러 개. 이 안의 파일은 선택할 수 없고 항상 남습니다"></div>
  <button class="pri" id="go">중복 찾기</button> <span class="mu">내용(SHA-256)이 같은 파일만 중복으로 판정합니다.</span></div><div id="res"></div>`);
  $("#go").onclick=async()=>{try{busy2("검색 중 (큰 폴더는 시간이 걸립니다)");const refs=$("#refs").value.split(",").map(s=>s.trim()).filter(Boolean);
-  const r=await api("dup",{path:root(),min_size:+$("#ms").value,hidden:$("#hid").checked,refs});
+  const r=await api("dup",{path:root(),min_size:+$("#ms").value,hidden:$("#hid").checked,dev:$("#dev").checked,refs});
   if(!r.groups.length){$("#res").innerHTML=`<div class="card ok">중복이 없습니다.</div>`;return}
   $("#res").innerHTML=`<div class="card"><b>${r.total_groups}그룹</b> · 낭비 공간 <b>${fmtSize(r.wasted)}</b>${r.total_groups>500?" (상위 500그룹 표시)":""}
    <div class="row" style="margin-top:8px">자동 선택: <button id="keepOld">가장 오래된 것만 남기기</button><button id="keepNew">가장 최근 것만 남기기</button><button id="keepShort">경로 짧은 것만 남기기</button></div></div>`+selBar()+
@@ -152,8 +153,8 @@ V.dup=()=>{view(`<div class="card"><div class="row"><label>최소 크기 <select
   $("#all").onclick=()=>auto((a,b)=>a.mtime-b.mtime)}catch(e){fail(e);$("#res").innerHTML=""}}};
 const busy2=m=>{$("#res").innerHTML=`<div class="card">${m}…</div>`};
 // 큰 파일
-V.big=()=>{view(`<div class="card"><div class="row"><label>표시 개수 <select id="lim"><option>50</option><option selected>200</option><option>500</option></select></label><label><input type="checkbox" id="hid"> 숨김 포함</label><button class="pri" id="go">큰 파일 찾기</button></div></div><div id="res"></div>`);
- $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("big",{path:root(),limit:+$("#lim").value,hidden:$("#hid").checked});
+V.big=()=>{view(`<div class="card"><div class="row"><label>표시 개수 <select id="lim"><option>50</option><option selected>200</option><option>500</option></select></label><label><input type="checkbox" id="hid"> 숨김 포함</label><label><input type="checkbox" id="dev"> 개발 폴더 포함</label><button class="pri" id="go">큰 파일 찾기</button></div></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("big",{path:root(),limit:+$("#lim").value,hidden:$("#hid").checked,dev:$("#dev").checked});
   $("#res").innerHTML=selBar()+`<div class="card"><table><tr><th></th><th>경로</th><th>수정일</th><th>크기</th></tr>`+r.files.map(f=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="${f.size}"></td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td><td class="n">${fmtSize(f.size)}</td></tr>`).join("")+`</table></div>`;
   wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
 // 빈 항목
