@@ -157,10 +157,10 @@ V.big=()=>{view(`<div class="card"><div class="row"><label>표시 개수 <select
   $("#res").innerHTML=selBar()+`<div class="card"><table><tr><th></th><th>경로</th><th>수정일</th><th>크기</th></tr>`+r.files.map(f=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="${f.size}"></td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td><td class="n">${fmtSize(f.size)}</td></tr>`).join("")+`</table></div>`;
   wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
 // 빈 항목
-V.empty=()=>{view(`<div class="card"><button class="pri" id="go">빈 폴더·0바이트 파일 찾기</button> <span class="mu">.DS_Store만 있는 폴더도 빈 폴더로 봅니다. 폴더는 .DS_Store 외에 내용이 없을 때만 보냅니다.</span></div><div id="res"></div>`);
- $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("empty",{path:root()});const rows=[...r.dirs.map(d=>["📁",d]),...r.zero.map(d=>["📄",d])];
-  if(!rows.length){$("#res").innerHTML=`<div class="card ok">비어 있는 항목이 없습니다.</div>`;return}
-  $("#res").innerHTML=selBar()+`<div class="card"><table>`+rows.map(([i,f])=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="0"></td><td>${i}</td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td></tr>`).join("")+`</table></div>`;
+V.empty=()=>{view(`<div class="card"><button class="pri" id="go">빈 폴더·0바이트 파일 찾기</button> <label><input type="checkbox" id="dev"> 프로젝트·개발 폴더 안도 포함 <span class="warn">(권장 안 함)</span></label> <span class="mu">.DS_Store만 있는 폴더도 빈 폴더로 봅니다. 폴더는 .DS_Store 외에 내용이 없을 때만 보냅니다.</span></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("empty",{path:root(),dev:$("#dev").checked});const rows=[...r.dirs.map(d=>["📁",d]),...r.zero.map(d=>["📄",d])];
+  if(!rows.length){$("#res").innerHTML=(r.skipped?`<div class="card mu">🛡️ 프로젝트·개발 폴더 안 ${r.skipped}개는 제외했습니다.</div>`:"")+`<div class="card ok">정리할 빈 항목이 없습니다.</div>`;return}
+  $("#res").innerHTML=(r.skipped?`<div class="card mu">🛡️ git 프로젝트·venv·node_modules 안의 ${r.skipped}개는 구조상 필요해서 제외했습니다.</div>`:"")+selBar()+`<div class="card"><table>`+rows.map(([i,f])=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="0"></td><td>${i}</td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td></tr>`).join("")+`</table></div>`;
   wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
 // 계획 표 공통
 function planCard(plan,label){const ok=plan.filter(p=>!p.conflict&&!p.same);

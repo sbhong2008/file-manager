@@ -137,24 +137,39 @@ def scan_big(a):
     return {"files": files[: int(a.get("limit", 200))]}
 
 
+DEV_DIRS = {".git", "node_modules", "venv", ".venv", "env", "__pycache__", "site-packages", ".idea", ".tox", "Pods"}
+KEEP_FILES = {"__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll"}
+
+
 def scan_empty(a):
     root = check(a["path"], True)
-    hidden = a.get("hidden", False)
+    hidden, dev = a.get("hidden", False), a.get("dev", False)
     zero = [fmt(p, st) for p, st, _ in walk(root, hidden) if st.st_size == 0]
-    dirs = []
     # 하위부터: 자식이 모두 빈 폴더(또는 .DS_Store만)면 빈 폴더
-    allp = sorted((p for p, _, isd in walk(root, True, False) if isd), key=lambda p: -len(p))
+    alld = [p for p, _, isd in walk(root, True, False) if isd]
     empty = set()
-    for d in allp:
+    for d in sorted(alld, key=lambda p: -len(p)):
         try:
             kids = [k for k in os.listdir(d) if k != ".DS_Store"]
         except OSError:
             continue
         if all(os.path.join(d, k) in empty for k in kids):
             empty.add(d)
-    # 최상위 빈 폴더만 보여준다 (부모가 빈 폴더면 부모 삭제로 포함)
+    # git 프로젝트·개발 폴더(.git, venv, node_modules …) 안의 항목은 기본 제외: 구조가 프로그램에 필요함
+    projects = {d for d in alld if os.path.isdir(os.path.join(d, ".git"))}
+
+    def in_dev(p):
+        rel = Path(p).relative_to(root).parts
+        return any(x in DEV_DIRS for x in rel) or any(under(Path(p), Path(pr)) for pr in projects)
+
     dirs = [{"path": d, "size": 0, "mtime": int(os.stat(d).st_mtime)} for d in sorted(empty) if os.path.dirname(d) not in empty]
-    return {"zero": zero, "dirs": dirs}
+    skipped = 0
+    if not dev:
+        n = len(dirs) + len(zero)
+        dirs = [x for x in dirs if not in_dev(x["path"])]
+        zero = [x for x in zero if not in_dev(x["path"]) and os.path.basename(x["path"]) not in KEEP_FILES]
+        skipped = n - len(dirs) - len(zero)
+    return {"zero": zero, "dirs": dirs, "skipped": skipped}
 
 
 def unique(dst):
