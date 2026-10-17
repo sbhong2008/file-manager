@@ -1,4 +1,10 @@
-# 파일 관리 — 설치·실행 (macOS · Windows · Linux · Android)
+# 파일 관리 (File Manager)
+
+로컬 파일 정리 도구: 중복 파일 · 큰 파일 · 빈 폴더/0바이트 · 종류·월별 자동 정리 · 일괄 이름 바꾸기 · 기록과 되돌리기. 파이썬 표준 라이브러리만 사용하며 브라우저 화면으로 조작합니다.
+
+> ⚠️ **파일을 옮기거나 휴지통으로 보내는 도구입니다.** 영구 삭제는 하지 않고(Windows·Android의 [휴지통 비우기] 제외) 모든 작업을 기록하지만, 사용 책임은 본인에게 있습니다. 처음에는 작은 폴더에서 시험하세요. 개인용 테스트 버전이며 어떤 보증도 없습니다.
+
+## 설치·실행 (macOS · Windows · Linux · Android)
 
 모든 OS 공통: **127.0.0.1(내 기기) 안에서만** 서버가 열리고 브라우저로 조작합니다. 파일 정보는 밖으로 나가지 않습니다.
 화면 위쪽 **[종료]** 버튼으로 끕니다.
@@ -42,3 +48,8 @@
 - 중복 파일은 그룹마다 하나는 남겨야 삭제할 수 있습니다.
 - 클라우드 동기화 폴더(iCloud·OneDrive 등)에서 지우면 다른 기기에도 반영됩니다.
 - 작업 기록 위치: macOS `~/Library/Application Support/파일관리`, Windows `%APPDATA%\FileManager`, Linux/Android `~/.local/share/FileManager`.
+
+## 개발
+- `server.py`(서버) + `index.html`(화면). 실행: `python3 server.py --open`
+- `build_single.py` → `dist/filemanager.py`(단일 파일), `build_app.sh` → macOS 앱(Apple Silicon), `.github/workflows/build.yml` → OS별 빌드(수동 실행)
+- 설계 근거와 벤치마크: `BENCHMARK.md`, 작업 규칙: `CLAUDE.md`
