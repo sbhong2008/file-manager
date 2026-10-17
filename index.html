@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>파일 관리</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1d2330;--mu:#6b7385;--ln:#e1e4ea;--ac:#2f6fed;--rd:#d93a3a;--gn:#1f9d55;--wn:#b7791f}
+@media(prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1d222b;--tx:#e8ebf1;--mu:#9aa3b5;--ln:#2d3440;--ac:#6b9bff;--rd:#ff6b6b;--gn:#4cc38a;--wn:#e0a94a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,"Apple SD Gothic Neo",sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--ln);background:var(--card);position:sticky;top:0;z-index:5}
+h1{font-size:16px;margin:0 0 8px}
+.path{display:flex;gap:6px;flex-wrap:wrap}.path input{flex:1;min-width:200px}
+input,select,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--ln);border-radius:6px;padding:5px 9px}
+button{cursor:pointer}button.pri{background:var(--ac);border-color:var(--ac);color:#fff}button.dng{color:var(--rd);border-color:var(--rd)}button:disabled{opacity:.45;cursor:default}
+nav{display:flex;gap:2px;overflow-x:auto;margin-top:8px}nav button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--mu)}nav button.on{color:var(--ac);border-color:var(--ac);font-weight:600}
+main{padding:14px 16px;max-width:1000px;margin:auto}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:8px;padding:12px;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.mu{color:var(--mu);font-size:12px}
+table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid var(--ln);text-align:left;vertical-align:top}th{font-size:12px;color:var(--mu)}
+td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
+.tag{font-size:11px;border-radius:4px;padding:0 5px;border:1px solid var(--ln);color:var(--mu)}.tag.ref{color:var(--gn);border-color:var(--gn)}
+.bad{color:var(--rd)}.ok{color:var(--gn)}.warn{color:var(--wn)}
+#picker{position:absolute;background:var(--card);border:1px solid var(--ln);border-radius:8px;padding:8px;max-height:260px;overflow:auto;z-index:9;box-shadow:0 6px 20px #0003;min-width:260px}
+#picker div{padding:3px 6px;cursor:pointer;border-radius:4px}#picker div:hover{background:var(--bg)}
+#toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:8px 14px;border-radius:8px;display:none;z-index:20;max-width:90%}
+</style></head><body>
+<header>
+ <h1>🗂️ 로컬 파일 관리 <span class="mu">— 삭제는 항상 휴지통, 모든 작업은 되돌리기 가능</span></h1>
+ <div class="path"><input id="root" placeholder="폴더 경로 (홈 폴더 안)" spellcheck="false"><button id="browse">찾아보기</button></div>
+ <nav id="tabs"></nav>
+</header>
+<div id="picker" hidden></div>
+<main id="view"></main><div id="toast"></div>
+<script>
+const TOKEN="__TOKEN__",HOME="__HOME__";
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtSize=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":n<1073741824?(n/1048576).toFixed(1)+" MB":(n/1073741824).toFixed(2)+" GB";
+const fmtDate=t=>new Date(t*1000).toLocaleDateString("ko-KR");
+const rel=p=>{const r=$("#root").value.replace(/\/$/,"");return p.startsWith(r+"/")?p.slice(r.length+1):p};
+function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display="none",3500)}
+async function api(name,body){
+  const r=await fetch("/api/"+name,{method:"POST",headers:{"X-Token":TOKEN,"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+const root=()=>{const v=$("#root").value.trim();if(!v)throw new Error("폴더 경로를 입력하세요");return v};
+$("#root").value=localStorage.getItem("fm_root")||HOME+"/Downloads";
+$("#root").onchange=()=>localStorage.setItem("fm_root",$("#root").value);
+
+// 폴더 선택기
+$("#browse").onclick=async e=>{const pk=$("#picker");if(!pk.hidden){pk.hidden=true;return}
+  const r=$("#browse").getBoundingClientRect();pk.style.left=r.left+"px";pk.style.top=(r.bottom+window.scrollY+4)+"px";pk.hidden=false;
+  await list($("#root").value||HOME)};
+async function list(p){try{const j=await (await fetch("/api/ls?path="+encodeURIComponent(p))).json();if(j.error)throw new Error(j.error);
+  const pk=$("#picker");pk.innerHTML=`<div class="mu">${esc(j.path)}</div><div data-p="${esc(j.path)}" class="ok">✓ 이 폴더 선택</div>`+(j.parent?`<div data-p="${esc(j.parent)}" data-nav>⬆ 위로</div>`:"")+j.dirs.map(d=>`<div data-p="${esc(j.path+"/"+d)}" data-nav>📁 ${esc(d)}</div>`).join("");
+  pk.onclick=ev=>{const d=ev.target.closest("[data-p]");if(!d)return;if(d.hasAttribute("data-nav"))list(d.dataset.p);else{$("#root").value=d.dataset.p;$("#root").onchange();pk.hidden=true}}}catch(e){toast(e.message)}}
+
+// 탭
+const TABS=[["dup","중복 파일"],["big","큰 파일"],["empty","빈 항목"],["org","자동 정리"],["rename","이름 바꾸기"],["log","기록·되돌리기"]];
+$("#tabs").innerHTML=TABS.map(([k,l])=>`<button data-t="${k}">${l}</button>`).join("");
+$("#tabs").onclick=e=>{const k=e.target.dataset.t;if(k)go(k)};
+function go(k){localStorage.setItem("fm_tab",k);document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===k));V[k]()}
+const view=h=>{$("#view").innerHTML=h};
+const busy=m=>view(`<div class="card">${m}…</div>`);
+const fail=e=>{toast(e.message);return e};
+
+// 선택·휴지통 공통
+function selBar(){return `<div class="row"><button id="all">전체 선택</button><button id="none">해제</button><span id="cnt" class="mu"></span><span style="flex:1"></span><button id="do" class="dng" disabled>선택 항목 휴지통으로</button></div>`}
+function wireSel(afterTrash){
+  const upd=()=>{const c=[...document.querySelectorAll(".sel:checked")];const sz=c.reduce((a,x)=>a+ +x.dataset.s,0);$("#cnt").textContent=c.length?`${c.length}개 · ${fmtSize(sz)}`:"";$("#do").disabled=!c.length};
+  $("#view").onchange=e=>{if(e.target.classList.contains("sel"))upd()};
+  $("#all").onclick=()=>{document.querySelectorAll(".sel:not(:disabled)").forEach(x=>x.checked=true);upd()};
+  $("#none").onclick=()=>{document.querySelectorAll(".sel").forEach(x=>x.checked=false);upd()};
+  $("#do").onclick=async()=>{const ps=[...document.querySelectorAll(".sel:checked")].map(x=>x.dataset.p);
+    if(!confirm(`${ps.length}개를 휴지통으로 보냅니다. (기록 탭에서 되돌릴 수 있음)`))return;
+    try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));afterTrash()}catch(e){fail(e)}};
+  upd()}
+
+const V={};
+// 중복
+V.dup=()=>{view(`<div class="card"><div class="row"><label>최소 크기 <select id="ms"><option value="1">전체</option><option value="102400">100KB</option><option value="1048576" selected>1MB</option><option value="10485760">10MB</option></select></label>
+ <label><input type="checkbox" id="hid"> 숨김 포함</label></div>
+ <div class="row"><input id="refs" style="flex:1" placeholder="기준(보존) 폴더 — 쉼표로 여러 개. 이 안의 파일은 선택할 수 없고 항상 남습니다"></div>
+ <button class="pri" id="go">중복 찾기</button> <span class="mu">내용(SHA-256)이 같은 파일만 중복으로 판정합니다.</span></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{busy2("검색 중 (큰 폴더는 시간이 걸립니다)");const refs=$("#refs").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const r=await api("dup",{path:root(),min_size:+$("#ms").value,hidden:$("#hid").checked,refs});
+  if(!r.groups.length){$("#res").innerHTML=`<div class="card ok">중복이 없습니다.</div>`;return}
+  $("#res").innerHTML=`<div class="card"><b>${r.total_groups}그룹</b> · 낭비 공간 <b>${fmtSize(r.wasted)}</b>${r.total_groups>500?" (상위 500그룹 표시)":""}
+   <div class="row" style="margin-top:8px">자동 선택: <button id="keepOld">가장 오래된 것만 남기기</button><button id="keepNew">가장 최근 것만 남기기</button><button id="keepShort">경로 짧은 것만 남기기</button></div></div>`+selBar()+
+   r.groups.map((g,i)=>`<div class="card"><div class="mu">${fmtSize(g.size)} × ${g.files.length} · 낭비 ${fmtSize(g.wasted)} · #${g.hash}</div><table data-g="${i}">`+
+   g.files.map(f=>`<tr><td style="width:24px"><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="${f.size}" ${f.ref?"disabled":""}></td><td class="p">${esc(rel(f.path))} ${f.ref?'<span class="tag ref">기준</span>':""}</td><td class="n mu">${fmtDate(f.mtime)}</td></tr>`).join("")+`</table></div>`).join("");
+  const auto=cmp=>{r.groups.forEach((g,i)=>{const tb=$(`table[data-g="${i}"]`),rows=[...tb.rows];const refIdx=g.files.findIndex(f=>f.ref);
+    let keep=refIdx>=0?refIdx:g.files.map((f,j)=>j).sort((a,b)=>cmp(g.files[a],g.files[b]))[0];
+    rows.forEach((tr,j)=>{const c=tr.querySelector(".sel");if(!c.disabled)c.checked=j!==keep})});$("#view").dispatchEvent(new Event("change",{bubbles:true}));document.querySelectorAll(".sel")[0].dispatchEvent(new Event("change",{bubbles:true}))};
+  $("#keepOld").onclick=()=>auto((a,b)=>a.mtime-b.mtime);$("#keepNew").onclick=()=>auto((a,b)=>b.mtime-a.mtime);$("#keepShort").onclick=()=>auto((a,b)=>a.path.length-b.path.length);
+  wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
+const busy2=m=>{$("#res").innerHTML=`<div class="card">${m}…</div>`};
+// 큰 파일
+V.big=()=>{view(`<div class="card"><div class="row"><label>표시 개수 <select id="lim"><option>50</option><option selected>200</option><option>500</option></select></label><label><input type="checkbox" id="hid"> 숨김 포함</label><button class="pri" id="go">큰 파일 찾기</button></div></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("big",{path:root(),limit:+$("#lim").value,hidden:$("#hid").checked});
+  $("#res").innerHTML=selBar()+`<div class="card"><table><tr><th></th><th>경로</th><th>수정일</th><th>크기</th></tr>`+r.files.map(f=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="${f.size}"></td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td><td class="n">${fmtSize(f.size)}</td></tr>`).join("")+`</table></div>`;
+  wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
+// 빈 항목
+V.empty=()=>{view(`<div class="card"><button class="pri" id="go">빈 폴더·0바이트 파일 찾기</button> <span class="mu">.DS_Store만 있는 폴더도 빈 폴더로 봅니다. 폴더는 .DS_Store 외에 내용이 없을 때만 보냅니다.</span></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{busy2("검색 중");const r=await api("empty",{path:root()});const rows=[...r.dirs.map(d=>["📁",d]),...r.zero.map(d=>["📄",d])];
+  if(!rows.length){$("#res").innerHTML=`<div class="card ok">비어 있는 항목이 없습니다.</div>`;return}
+  $("#res").innerHTML=selBar()+`<div class="card"><table>`+rows.map(([i,f])=>`<tr><td><input type="checkbox" class="sel" data-p="${esc(f.path)}" data-s="0"></td><td>${i}</td><td class="p">${esc(rel(f.path))}</td><td class="mu">${fmtDate(f.mtime)}</td></tr>`).join("")+`</table></div>`;
+  wireSel(()=>$("#go").click())}catch(e){fail(e);$("#res").innerHTML=""}}};
+// 계획 표 공통
+function planCard(plan,label){const ok=plan.filter(p=>!p.conflict&&!p.same);
+  $("#res").innerHTML=`<div class="card"><b>${ok.length}개</b> 이동 예정${plan.some(p=>p.conflict)?` · <span class="bad">충돌 ${plan.filter(p=>p.conflict).length}개(건너뜀)</span>`:""} <span class="mu">— 적용 전 미리보기입니다. 아무것도 바뀌지 않았습니다.</span>
+  <div class="row" style="margin-top:8px"><button class="pri" id="apply" ${ok.length?"":"disabled"}>${label} 적용</button></div>
+  <table><tr><th>현재</th><th>→ 변경 후</th></tr>`+plan.map(p=>`<tr class="${p.conflict?"bad":""}"><td class="p">${esc(p.old||rel(p.src))}</td><td class="p">${p.same?'<span class="mu">(변경 없음)</span>':esc(p.new||rel(p.dst))}${p.conflict?" ⚠ 충돌":""}</td></tr>`).join("")+`</table></div>`;
+  $("#apply").onclick=async()=>{try{const r=await api("move",{label,moves:ok.map(p=>({src:p.src,dst:p.dst}))});toast(`${r.done}개 완료`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:"")+" · 기록 탭에서 되돌리기");$("#res").innerHTML=`<div class="card ok">${r.done}개 적용됨. 되돌리려면 '기록·되돌리기' 탭.</div>`}catch(e){fail(e)}}}
+// 자동 정리
+V.org=()=>{view(`<div class="card"><div class="row"><label>분류 방식 <select id="md"><option value="type">종류별 (이미지/문서/…)</option><option value="month">수정 월별 (2026-10)</option><option value="type-month">종류 / 월별</option></select></label><button class="pri" id="go">미리보기</button></div><div class="mu">선택한 폴더 바로 아래의 파일만 하위 폴더로 옮깁니다(하위 폴더·숨김 파일 제외, 같은 이름이 있으면 번호를 붙임).</div></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{const r=await api("org",{path:root(),mode:$("#md").value});if(!r.plan.length){$("#res").innerHTML=`<div class="card">정리할 파일이 없습니다.</div>`;return}planCard(r.plan,"자동 정리")}catch(e){fail(e)}}};
+// 이름 바꾸기
+V.rename=()=>{view(`<div class="card"><div class="row"><label>형식 <input id="tpl" value="{name}" size="22"></label><span class="mu">{name} 원래 이름 · {n} 번호 · {date} 수정일 · {ext} 확장자(없으면 자동 유지)</span></div>
+ <div class="row"><label>찾기 <input id="find" size="10"></label><label>바꿀 말 <input id="repl" size="10"></label><label>번호 시작 <input id="st" type="number" value="1" style="width:60px"></label><label>자릿수 <input id="pad" type="number" value="2" style="width:50px"></label>
+ <label>대소문자 <select id="case"><option value="">유지</option><option value="lower">소문자</option><option value="upper">대문자</option></select></label><label>확장자만 <input id="ext" size="6" placeholder=".jpg"></label>
+ <label><input type="checkbox" id="nfc"> 한글 정규화(NFC)</label></div><button class="pri" id="go">미리보기</button></div><div id="res"></div>`);
+ $("#go").onclick=async()=>{try{const r=await api("rename",{path:root(),template:$("#tpl").value,find:$("#find").value,repl:$("#repl").value,start:+$("#st").value,pad:+$("#pad").value,case:$("#case").value,ext:$("#ext").value.trim(),nfc:$("#nfc").checked});
+  if(!r.plan.length){$("#res").innerHTML=`<div class="card">대상 파일이 없습니다.</div>`;return}planCard(r.plan,"이름 바꾸기")}catch(e){fail(e)}}};
+// 기록
+V.log=async()=>{try{const j=await (await fetch("/api/journal")).json();
+ view(`<div class="card">`+(j.journal.length?`<table><tr><th>시각</th><th>작업</th><th>개수</th><th></th></tr>`+j.journal.map(e=>`<tr><td>${e.at}</td><td>${esc(e.label)}</td><td>${e.ops.length}</td><td class="n">${e.undone?'<span class="mu">되돌림</span>':`<button data-u="${e.id}">되돌리기</button>`}</td></tr>`).join("")+`</table><div class="mu" style="margin-top:8px">휴지통으로 보낸 항목은 ~/.Trash 에서 원래 위치로 복원됩니다(Finder의 '되돌려놓기'와 별개). 휴지통을 이미 비웠다면 복원할 수 없습니다.</div>`:"기록이 없습니다.")+`</div>`);
+ $("#view").onclick=async e=>{const id=e.target.dataset.u;if(!id)return;try{const r=await api("undo",{id:+id});toast(`복원 ${r.restored}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));V.log()}catch(x){fail(x)}}}catch(e){fail(e)}};
+go(localStorage.getItem("fm_tab")||"dup");
+</script></body></html>
