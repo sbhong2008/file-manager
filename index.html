@@ -26,6 +26,7 @@ td.p{word-break:break-all}td.n{text-align:right;white-space:nowrap}
 <header>
  <h1>🗂️ 로컬 파일 관리 <span class="mu">— 삭제는 항상 휴지통, 모든 작업은 되돌리기 가능</span></h1>
  <div class="path"><input id="root" placeholder="폴더 경로 (홈 폴더 안)" spellcheck="false"><button id="browse">찾아보기</button></div>
+ <div id="disk" class="mu" style="margin-top:6px"></div>
  <nav id="tabs"></nav>
 </header>
 <div id="picker" hidden></div>
@@ -54,6 +55,8 @@ async function list(p){try{const j=await (await fetch("/api/ls?path="+encodeURIC
   pk.onclick=ev=>{const d=ev.target.closest("[data-p]");if(!d)return;if(d.hasAttribute("data-nav"))list(d.dataset.p);else{$("#root").value=d.dataset.p;$("#root").onchange();pk.hidden=true}}}catch(e){toast(e.message)}}
 
 // 탭
+async function diskInfo(){try{const d=await api("disk");$("#disk").innerHTML=`💾 여유 공간 <b>${fmtSize(d.free)}</b> / ${fmtSize(d.total)}`+(d.trash===null?"":` · 이 앱이 보낸 휴지통 <b>${fmtSize(d.trash)}</b> <span class="mu">(휴지통을 비우면 이만큼 확보)</span>`)}catch(e){}}
+diskInfo();
 const TABS=[["dup","중복 파일"],["big","큰 파일"],["empty","빈 항목"],["org","자동 정리"],["rename","이름 바꾸기"],["log","기록·되돌리기"]];
 $("#tabs").innerHTML=TABS.map(([k,l])=>`<button data-t="${k}">${l}</button>`).join("");
 $("#tabs").onclick=e=>{const k=e.target.dataset.t;if(k)go(k)};
@@ -71,7 +74,7 @@ function wireSel(afterTrash,guard){
   $("#none").onclick=()=>{document.querySelectorAll(".sel").forEach(x=>x.checked=false);upd()};
   $("#do").onclick=async()=>{if(guard&&!guard())return;const ps=[...document.querySelectorAll(".sel:checked")].map(x=>x.dataset.p);
     if(!confirm(`${ps.length}개를 휴지통으로 보냅니다. (기록 탭에서 되돌릴 수 있음)`))return;
-    try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));afterTrash()}catch(e){fail(e)}};
+    try{const r=await api("trash",{paths:ps});toast(`휴지통 ${r.done}개 · ${fmtSize(r.freed)} 정리`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:"")+" — 휴지통을 비우면 여유 공간이 늘어납니다");diskInfo();afterTrash()}catch(e){fail(e)}};
   upd()}
 
 const V={};
@@ -125,6 +128,6 @@ V.rename=()=>{view(`<div class="card"><div class="row"><label>형식 <input id="
 // 기록
 V.log=async()=>{try{const j=await (await fetch("/api/journal")).json();
  view(`<div class="card">`+(j.journal.length?`<table><tr><th>시각</th><th>작업</th><th>개수</th><th></th></tr>`+j.journal.map(e=>`<tr><td>${e.at}</td><td>${esc(e.label)}</td><td>${e.ops.length}</td><td class="n">${e.undone?'<span class="mu">되돌림</span>':`<button data-u="${e.id}">되돌리기</button>`}</td></tr>`).join("")+`</table><div class="mu" style="margin-top:8px">휴지통으로 보낸 항목은 ~/.Trash 에서 원래 위치로 복원됩니다(Finder의 '되돌려놓기'와 별개). 휴지통을 이미 비웠다면 복원할 수 없습니다.</div>`:"기록이 없습니다.")+`</div>`);
- $("#view").onclick=async e=>{const id=e.target.dataset.u;if(!id)return;try{const r=await api("undo",{id:+id});toast(`복원 ${r.restored}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));V.log()}catch(x){fail(x)}}}catch(e){fail(e)}};
+ $("#view").onclick=async e=>{const id=e.target.dataset.u;if(!id)return;try{const r=await api("undo",{id:+id});diskInfo();toast(`복원 ${r.restored}개`+(r.errors.length?` · 실패 ${r.errors.length}: ${r.errors[0].error}`:""));V.log()}catch(x){fail(x)}}}catch(e){fail(e)}};
 go(localStorage.getItem("fm_tab")||"dup");
 </script></body></html>

@@ -231,8 +231,24 @@ def jsave(j):
     JOURNAL.write_text(json.dumps(j[-200:], ensure_ascii=False, indent=1))
 
 
+def disk():
+    u = shutil.disk_usage(HOME)
+    # ~/.Trash 목록은 macOS 권한(TCC)으로 못 읽을 수 있어, 이 앱이 보낸 항목 중 아직 휴지통에 있는 것만 합산한다
+    mine = 0
+    for e in jload():
+        if e["label"] != "휴지통" or e["undone"]:
+            continue
+        for op in e["ops"]:
+            try:
+                mine += os.stat(op["dst"]).st_size if os.path.isfile(op["dst"]) else 0
+            except OSError:
+                pass
+    return {"total": u.total, "free": u.free, "trash": mine}
+
+
 def do_trash(a):
-    ops, errs = [], []
+    before = disk()["free"]
+    ops, errs, freed = [], [], 0
     for raw in a["paths"]:
         try:
             p = check(raw)
@@ -240,12 +256,16 @@ def do_trash(a):
                 raise Err("대상이 없습니다")
             if p.is_dir() and any(True for _ in walk(p, True)):
                 raise Err("파일이 들어 있는 폴더는 휴지통으로 보내지 않습니다")
+            size = p.stat().st_size if p.is_file() else 0
             dst = unique(TRASH / p.name)
             shutil.move(str(p), str(dst))
             ops.append({"src": str(p), "dst": str(dst)})
+            freed += size
         except (Err, OSError) as e:
             errs.append({"path": raw, "error": str(e)})
-    return log("휴지통", ops, errs)
+    r = log("휴지통", ops, errs)
+    r.update(freed=freed, disk=disk(), free_before=before)  # 휴지통에 넣은 용량 (비워야 실제 확보)
+    return r
 
 
 def do_move(a):
@@ -308,7 +328,7 @@ def do_ls(q):
     return {"path": str(p), "parent": str(p.parent) if p != HOME else None, "dirs": dirs}
 
 
-ROUTES = {"dup": scan_dup, "big": scan_big, "empty": scan_empty, "org": plan_org, "rename": plan_rename,
+ROUTES = {"disk": lambda a: disk(), "dup": scan_dup, "big": scan_big, "empty": scan_empty, "org": plan_org, "rename": plan_rename,
           "trash": do_trash, "move": do_move, "undo": do_undo}
 
 
