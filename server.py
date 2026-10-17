@@ -138,7 +138,7 @@ def scan_big(a):
 
 
 DEV_DIRS = {".git", "node_modules", "venv", ".venv", "env", "__pycache__", "site-packages", ".idea", ".tox", "Pods"}
-KEEP_FILES = {"__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll"}
+KEEP_FILES = {"Icon\r", "__init__.py", ".gitkeep", ".keep", "py.typed", ".nojekyll"}
 
 
 def scan_empty(a):
